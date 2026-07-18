@@ -1,0 +1,309 @@
+import express from 'express';
+import Database from 'better-sqlite3';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// โหลดค่า environment จาก .env โดยไม่ต้องเพิ่ม dependency
+const envFile = path.join(__dirname, '.env');
+if (fs.existsSync(envFile)) {
+  for (const line of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/i);
+    if (match && !process.env[match[1]]) process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, '');
+  }
+}
+const dataDir = path.join(__dirname, 'data');
+fs.mkdirSync(dataDir, { recursive: true });
+const db = new Database(path.join(dataDir, 'cafe.db'));
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), category TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '☕', active INTEGER NOT NULL DEFAULT 1, stock_key TEXT);
+CREATE TABLE IF NOT EXISTS inventory (stock_key TEXT PRIMARY KEY, name TEXT NOT NULL, unit TEXT NOT NULL, quantity REAL NOT NULL DEFAULT 0, low_alert REAL NOT NULL DEFAULT 0, category TEXT NOT NULL DEFAULT 'raw');
+CREATE TABLE IF NOT EXISTS recipes (product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE, ingredients TEXT NOT NULL, steps TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS members (phone TEXT PRIMARY KEY, name TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS feature_settings (feature_key TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, subtotal REAL NOT NULL, discount REAL NOT NULL, total REAL NOT NULL, payment_type TEXT NOT NULL, member_phone TEXT REFERENCES members(phone));
+CREATE TABLE IF NOT EXISTS order_items (id INTEGER PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id), product_id INTEGER, name TEXT NOT NULL, unit_price REAL NOT NULL, quantity INTEGER NOT NULL, options_json TEXT NOT NULL DEFAULT '{}');
+CREATE TABLE IF NOT EXISTS stock_movements (id INTEGER PRIMARY KEY, stock_key TEXT NOT NULL REFERENCES inventory(stock_key), quantity REAL NOT NULL, reason TEXT NOT NULL, order_id TEXT REFERENCES orders(id), created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS categories (category_key TEXT PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS sales_channels (channel_key TEXT PRIMARY KEY, name TEXT NOT NULL, gp_percent REAL NOT NULL DEFAULT 0 CHECK(gp_percent >= 0 AND gp_percent < 100), active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS channel_prices (product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE, channel_key TEXT NOT NULL REFERENCES sales_channels(channel_key) ON DELETE CASCADE, sale_price REAL NOT NULL CHECK(sale_price >= 0), PRIMARY KEY(product_id, channel_key));
+`);
+
+// Migration: Add status column to order_items if it doesn't exist
+try {
+  db.prepare("SELECT status FROM order_items LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE order_items ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
+}
+
+// Migration: Add received and change_due columns to orders if they don't exist
+try {
+  db.prepare("SELECT received FROM orders LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE orders ADD COLUMN received REAL DEFAULT 0");
+  db.exec("ALTER TABLE orders ADD COLUMN change_due REAL DEFAULT 0");
+}
+
+// Migration: Add description column to recipes if it doesn't exist
+try {
+  db.prepare("SELECT description FROM recipes LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE recipes ADD COLUMN description TEXT DEFAULT ''");
+}
+
+// Migration: Create structured recipe_items table
+db.exec(`
+CREATE TABLE IF NOT EXISTS recipe_items (
+  product_id INTEGER,
+  stock_key TEXT,
+  quantity REAL,
+  PRIMARY KEY (product_id, stock_key),
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  FOREIGN KEY (stock_key) REFERENCES inventory(stock_key) ON DELETE CASCADE
+)
+`);
+
+// Migration: Update category column to use ingredient / equipment
+try {
+  db.prepare("SELECT category FROM inventory LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE inventory ADD COLUMN category TEXT NOT NULL DEFAULT 'ingredient'");
+}
+
+// Ensure database seeded items use either 'ingredient' or 'equipment'
+db.exec(`
+  UPDATE inventory SET category = 'ingredient' WHERE category IN ('raw', 'liquid', 'bakery');
+  UPDATE inventory SET category = 'equipment' WHERE category = 'packaging';
+`);
+
+// Seed default inventory items
+const insertInv = db.prepare("INSERT OR IGNORE INTO inventory (stock_key, name, unit, quantity, low_alert, category) VALUES (?, ?, ?, ?, ?, ?)");
+insertInv.run('coffee_beans', 'เมล็ดกาแฟ', 'กรัม', 5000, 1000, 'ingredient');
+insertInv.run('milk', 'นมสด', 'มล.', 10000, 2000, 'ingredient');
+insertInv.run('tea_leaves', 'ใบชา', 'กรัม', 3000, 500, 'ingredient');
+insertInv.run('croissant', 'ครัวซองต์', 'ชิ้น', 30, 10, 'ingredient');
+insertInv.run('cup_hot', 'แก้วร้อน 8oz', 'ใบ', 500, 100, 'equipment');
+insertInv.run('cup_cold', 'แก้วเย็น 16oz', 'ใบ', 1000, 200, 'equipment');
+insertInv.run('straw', 'หลอดพลาสติก', 'เส้น', 1500, 300, 'equipment');
+
+if (db.prepare('SELECT count(*) AS n FROM categories').get().n === 0) {
+  [['coffee','กาแฟ'],['tea','ชาและนม'],['bakery','เบเกอรี่'],['other','อื่น ๆ']].forEach(x => db.prepare('INSERT INTO categories(category_key,name) VALUES (?,?)').run(...x));
+}
+if (db.prepare('SELECT count(*) AS n FROM sales_channels').get().n === 0) {
+  [['lineman','LINE MAN',30],['grab','GrabFood',30],['shopee','ShopeeFood',30]].forEach(x => db.prepare('INSERT INTO sales_channels(channel_key,name,gp_percent) VALUES (?,?,?)').run(...x));
+}
+
+if (db.prepare('SELECT count(*) AS n FROM products').get().n === 0) {
+  const seed = db.transaction(() => {
+    [['เอสเพรสโซ่ร้อน',50,'coffee','☕','coffee_beans'],['อเมริกาโน่เย็น',60,'coffee','🧊','coffee_beans'],['คาปูชิโน่เย็น',70,'coffee','☕','milk'],['ชาไทยเย็น',65,'tea','🧋','tea_leaves'],['ครัวซองต์เนยสด',85,'bakery','🥐','croissant']].forEach((x,i) => db.prepare('INSERT INTO products(name,price,category,emoji,stock_key) VALUES (?,?,?,?,?)').run(...x));
+    ['kds','inventory','members','recipes','reports'].forEach(k => db.prepare('INSERT INTO feature_settings VALUES (?,1)').run(k));
+  }); seed();
+}
+
+const app = express();
+app.use(express.json({ limit: '200kb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+const admin = (req,res,next) => req.get('x-admin-pin') === (process.env.ADMIN_PIN || 'change-me') ? next() : res.status(401).json({error:'ต้องระบุ PIN ผู้ดูแลให้ถูกต้อง'});
+const enabled = key => db.prepare('SELECT enabled FROM feature_settings WHERE feature_key=?').get(key)?.enabled === 1;
+const id = () => `TX-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+const fail = (res, message, status=400) => res.status(status).json({error:message});
+
+// Helper for structured stock checks
+const getRecipeItems = (productId, stockKey) => {
+  const items = db.prepare('SELECT stock_key, quantity FROM recipe_items WHERE product_id=?').all(productId);
+  if (items.length > 0) return items;
+  // Fallback to stockKey if recipe items are empty (compatibility mode)
+  if (stockKey) return [{ stock_key: stockKey, quantity: 1 }];
+  return [];
+};
+
+app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), features:Object.fromEntries(db.prepare('SELECT feature_key,enabled FROM feature_settings').all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
+app.get('/api/pricing', (_,res) => res.json(db.prepare(`SELECT p.id product_id,p.name,p.price store_price,c.channel_key,c.name channel_name,c.gp_percent,cp.sale_price,round(p.price/(1-c.gp_percent/100),2) suggested_price FROM products p CROSS JOIN sales_channels c LEFT JOIN channel_prices cp ON cp.product_id=p.id AND cp.channel_key=c.channel_key WHERE p.active=1 AND c.active=1 ORDER BY p.name,c.name`).all()));
+app.get('/api/orders', (req,res) => res.json(db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 100').all()));
+
+app.get('/api/reports/today', (_,res) => res.json(db.prepare("SELECT count(*) orders, coalesce(sum(total),0) sales FROM orders WHERE date(created_at,'localtime')=date('now','localtime')").get()));
+app.get('/api/kds', (_,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); res.json(db.prepare("SELECT oi.id,oi.name,oi.quantity,oi.options_json,oi.status,o.id order_id,o.created_at FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE date(o.created_at,'localtime')=date('now','localtime') ORDER BY o.created_at DESC LIMIT 100").all()); });
+app.put('/api/kds/items/:id/status', (req,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); const status=req.body?.status; if(!['pending','cooking','completed'].includes(status)) return fail(res,'สถานะไม่ถูกต้อง'); const r=db.prepare('UPDATE order_items SET status=? WHERE id=?').run(status,req.params.id); return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการคิวชง',404); });
+app.get('/api/members', (_,res) => { if(!enabled('members')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันสมาชิก',403); res.json(db.prepare('SELECT phone,name,points FROM members ORDER BY points DESC,name LIMIT 100').all()); });
+app.get('/api/members/:phone', (req,res) => { if(!enabled('members')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันสมาชิก',403); const phone=String(req.params.phone||'').replace(/\D/g,''); const member=db.prepare('SELECT phone,name,points FROM members WHERE phone=?').get(phone); return member?res.json(member):fail(res,'ไม่พบสมาชิก',404); });
+app.post('/api/members', (req,res) => { if(!enabled('members')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันสมาชิก',403); const phone=String(req.body?.phone||'').replace(/\D/g,''), name=String(req.body?.name||'').trim(); if(phone.length<9||!name)return fail(res,'กรอกชื่อและเบอร์โทรให้ถูกต้อง'); db.prepare('INSERT INTO members(phone,name,points) VALUES (?,?,0) ON CONFLICT(phone) DO UPDATE SET name=excluded.name').run(phone,name);res.status(201).json({ok:true}); });
+
+app.get('/api/recipes', (_,res) => {
+  if(!enabled('recipes')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันสูตรชง',403);
+  const products = db.prepare('SELECT id, name, emoji FROM products WHERE active=1 ORDER BY name').all();
+  const recipes = products.map(p => {
+    const r = db.prepare('SELECT description FROM recipes WHERE product_id=?').get(p.id);
+    const items = db.prepare('SELECT ri.stock_key, ri.quantity, i.name, i.unit FROM recipe_items ri JOIN inventory i ON i.stock_key=ri.stock_key WHERE ri.product_id=?').all(p.id);
+    return {
+      id: p.id,
+      name: p.name,
+      emoji: p.emoji,
+      description: r ? r.description : '',
+      items
+    };
+  });
+  res.json(recipes);
+});
+
+app.post('/api/orders', (req,res) => {
+  const {items, discount=0, paymentType, memberPhone=null, received=0, changeDue=0} = req.body || {};
+  if (!Array.isArray(items) || !items.length || !['cash','qr'].includes(paymentType)) return fail(res,'ข้อมูลการชำระเงินไม่ถูกต้อง');
+  if (!Number.isFinite(Number(discount)) || Number(discount)<0) return fail(res,'ส่วนลดไม่ถูกต้อง');
+  try {
+    const order = db.transaction(() => {
+      const products = db.prepare(`SELECT * FROM products WHERE id=?`); let subtotal=0; const lines=[];
+      for (const row of items) { const product=products.get(Number(row.productId)); const qty=Number(row.quantity); if(!product || !product.active || !Number.isInteger(qty) || qty<1 || qty>99) throw Error('รายการสินค้าไม่ถูกต้อง'); subtotal += product.price*qty; lines.push({product,qty,options:row.options||{}}); }
+      
+      const finalDiscount=Math.min(Number(discount),subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
+      
+      // Stock checks (Structured Recipes verification)
+      for (const {product,qty} of lines) {
+        const recipeItems = getRecipeItems(product.id, product.stock_key);
+        for (const item of recipeItems) {
+          const stock = db.prepare('SELECT name, quantity FROM inventory WHERE stock_key=?').get(item.stock_key);
+          if (!stock || stock.quantity < item.quantity * qty) {
+            throw Error(`สต็อก ${stock.name} ไม่เพียงพอสำหรับเมนู ${product.name}`);
+          }
+        }
+      }
+      
+      db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,memberPhone||null,received,changeDue);
+      
+      for (const {product,qty,options} of lines) {
+        db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name,product.price,qty,JSON.stringify(options));
+        
+        // Multi-item inventory reductions
+        const recipeItems = getRecipeItems(product.id, product.stock_key);
+        for (const item of recipeItems) {
+          db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity * qty, item.stock_key);
+          db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key, -item.quantity * qty, 'sale', orderId, now);
+        }
+      }
+      
+      if(memberPhone && enabled('members')) db.prepare('UPDATE members SET points=points+? WHERE phone=?').run(Math.floor(total/10),memberPhone);
+      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,memberPhone,received,changeDue};
+    })(); res.status(201).json(order);
+  } catch(e) { fail(res,e.message); }
+});
+
+app.get('/api/reports/analytics', (_, res) => {
+  if (!enabled('reports')) return fail(res, 'ยังไม่ได้เปิดฟังก์ชันรายงาน', 403);
+  try {
+    const categorySales = db.prepare(`
+      SELECT p.category, SUM(oi.unit_price * oi.quantity) as sales
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      LEFT JOIN products p ON p.id = oi.product_id
+      GROUP BY p.category
+    `).all();
+
+    const paymentSales = db.prepare(`
+      SELECT payment_type, SUM(total) as sales
+      FROM orders
+      GROUP BY payment_type
+    `).all();
+
+    const topSellers = db.prepare(`
+      SELECT name, SUM(quantity) as qty, SUM(unit_price * quantity) as revenue
+      FROM order_items
+      GROUP BY name
+      ORDER BY qty DESC
+      LIMIT 5
+    `).all();
+
+    res.json({ categorySales, paymentSales, topSellers });
+  } catch (e) {
+    fail(res, e.message, 500);
+  }
+});
+
+app.get('/api/reports/transactions', (_, res) => {
+  if (!enabled('reports')) return fail(res, 'ยังไม่ได้เปิดฟังก์ชันรายงาน', 403);
+  try {
+    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 50').all();
+    const transactions = orders.map(o => {
+      const items = db.prepare('SELECT name, unit_price, quantity, options_json FROM order_items WHERE order_id=?').all(o.id);
+      return {
+        id: o.id,
+        created_at: o.created_at,
+        subtotal: o.subtotal,
+        discount: o.discount,
+        total: o.total,
+        payment_type: o.payment_type,
+        member_phone: o.member_phone,
+        received: o.received,
+        change_due: o.change_due,
+        items
+      };
+    });
+    res.json(transactions);
+  } catch (e) {
+    fail(res, e.message, 500);
+  }
+});
+
+app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare('SELECT feature_key,enabled FROM feature_settings').all()}));
+app.put('/api/admin/settings/:key', admin, (req,res) => { const ok=db.prepare('UPDATE feature_settings SET enabled=? WHERE feature_key=?').run(req.body?.enabled?1:0,req.params.key); return ok.changes?res.json({ok:true}):fail(res,'ไม่พบฟังก์ชัน',404); });
+app.post('/api/admin/inventory/:key/adjust', admin, (req,res) => { const amount=Number(req.body?.amount); const reason=String(req.body?.reason || 'manual adjustment').trim(); if(!Number.isFinite(amount)||amount===0) return fail(res,'จำนวนไม่ถูกต้อง'); const r=db.prepare('UPDATE inventory SET quantity=quantity+? WHERE stock_key=? AND quantity+?>=0').run(amount,req.params.key,amount); if(!r.changes)return fail(res,'สต็อกไม่พอหรือไม่พบรายการ'); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,created_at) VALUES (?,?,?,?)').run(req.params.key,amount,reason,new Date().toISOString()); res.json({ok:true}); });
+app.get('/api/admin/products', admin, (_,res) => { res.json(db.prepare('SELECT * FROM products ORDER BY category,name').all()); });
+
+app.post('/api/admin/products', admin, (req,res) => { 
+  const {name,price,category,emoji='☕',stockKey=null}=req.body||{}; 
+  if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง'); 
+  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key) VALUES (?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey); 
+  res.status(201).json({id:result.lastInsertRowid}); 
+});
+
+app.put('/api/admin/products/:id', admin, (req,res) => { 
+  const {name,price,category,emoji='☕',active=true,stockKey=null}=req.body||{}; 
+  if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง'); 
+  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,req.params.id); 
+  return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสินค้า',404); 
+});
+
+app.delete('/api/admin/products/:id', admin, (req,res) => {
+  const r = db.prepare('DELETE FROM products WHERE id=?').run(req.params.id);
+  return r.changes ? res.json({ok:true}) : fail(res, 'ไม่พบสินค้า', 404);
+});
+
+// Structured recipe endpoints
+app.get('/api/admin/products/:id/recipe', admin, (req, res) => {
+  const productId = Number(req.params.id);
+  const items = db.prepare('SELECT ri.stock_key, ri.quantity, i.name, i.unit FROM recipe_items ri JOIN inventory i ON i.stock_key=ri.stock_key WHERE ri.product_id=?').all(productId);
+  const recipe = db.prepare('SELECT description FROM recipes WHERE product_id=?').get(productId);
+  res.json({ items, description: recipe ? recipe.description : '' });
+});
+
+app.put('/api/admin/products/:id/recipe', admin, (req, res) => {
+  const productId = Number(req.params.id);
+  const { items, description } = req.body || {};
+  if (!Array.isArray(items) || typeof description !== 'string') return fail(res, 'ข้อมูลสูตรไม่ถูกต้อง');
+  
+  db.transaction(() => {
+    // Save recipe description
+    db.prepare("INSERT INTO recipes(product_id,description,ingredients,steps) VALUES (?,?,'','') ON CONFLICT(product_id) DO UPDATE SET description=excluded.description").run(productId, description);
+    
+    // Clear old recipe items mapping
+    db.prepare('DELETE FROM recipe_items WHERE product_id=?').run(productId);
+    
+    // Insert new recipe items mapping
+    const stmt = db.prepare('INSERT INTO recipe_items(product_id,stock_key,quantity) VALUES (?,?,?)');
+    for (const item of items) {
+      if (item.stock_key && Number(item.quantity) > 0) {
+        stmt.run(productId, item.stock_key, Number(item.quantity));
+      }
+    }
+  })();
+  res.json({ ok: true });
+});
+
+app.put('/api/admin/recipes', admin, (req,res) => { const {productId,ingredients,steps}=req.body||{}; if(!productId||typeof ingredients!=='string'||typeof steps!=='string')return fail(res,'ข้อมูลสูตรไม่ถูกต้อง'); db.prepare('INSERT INTO recipes(product_id,ingredients,steps) VALUES (?,?,?) ON CONFLICT(product_id) DO UPDATE SET ingredients=excluded.ingredients,steps=excluded.steps').run(productId,ingredients,steps); res.json({ok:true}); });
+app.post('/api/admin/categories', admin, (req,res) => { const key=String(req.body?.key||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,''); const name=String(req.body?.name||'').trim(); if(!key||!name)return fail(res,'ระบุรหัสและชื่อหมวดสินค้า'); try{db.prepare('INSERT INTO categories(category_key,name) VALUES (?,?)').run(key,name);res.status(201).json({ok:true})}catch{fail(res,'รหัสหมวดซ้ำ',409)} });
+app.put('/api/admin/channels/:key', admin, (req,res) => { const gp=Number(req.body?.gpPercent); const active=req.body?.active; if(!Number.isFinite(gp)||gp<0||gp>=100)return fail(res,'GP ต้องอยู่ระหว่าง 0 ถึงน้อยกว่า 100'); const r=db.prepare('UPDATE sales_channels SET gp_percent=?,active=? WHERE channel_key=?').run(gp,active?1:0,req.params.key);return r.changes?res.json({ok:true}):fail(res,'ไม่พบช่องทาง',404); });
+app.put('/api/admin/channel-prices', admin, (req,res) => { const productId=Number(req.body?.productId), channelKey=String(req.body?.channelKey||''), price=Number(req.body?.salePrice);if(!Number.isInteger(productId)||!channelKey||!Number.isFinite(price)||price<0)return fail(res,'ข้อมูลราคาไม่ถูกต้อง');db.prepare('INSERT INTO channel_prices(product_id,channel_key,sale_price) VALUES (?,?,?) ON CONFLICT(product_id,channel_key) DO UPDATE SET sale_price=excluded.sale_price').run(productId,channelKey,price);res.json({ok:true}); });
+app.use((err,_,res,__) => { console.error(err); fail(res,'เกิดข้อผิดพลาดภายในระบบ',500); });
+app.listen(process.env.PORT || 3000, () => console.log(`POS ready on http://localhost:${process.env.PORT || 3000}`));

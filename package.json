@@ -1,0 +1,9 @@
+{
+  "name": "caff-aroma-pos",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node server.js", "dev": "node --watch server.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "better-sqlite3": "^12.11.1", "express": "^4.21.2" }
+}
