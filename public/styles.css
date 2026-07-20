@@ -466,7 +466,35 @@ input:focus {
 
 .product-card-wrapper:has(.stock-badge.empty) {
   opacity: 0.55;
+}
+
+.product.product-out {
+  opacity: 0.5;
+  cursor: not-allowed;
   pointer-events: none;
+}
+
+/* Brewing Queue Cards */
+.brew-card {
+  border: 1px solid #f1e7de;
+  border-left: 4px solid var(--accent);
+  background: #fff;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brew-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.brew-card[data-status="cooking"] {
+  border-left-color: #27ae60;
 }
 
 /* Cart & Checkout Panel */
@@ -1202,3 +1230,36 @@ dialog form > header h2 {
     grid-column: 1 / -1;
   }
 }
+
+/* Tablet-first POS controls */
+.workspace { grid-template-columns: minmax(0, 3fr) minmax(340px, 2fr); }
+.quick-recipe-btn { display: none !important; }
+.product { min-height: 132px; touch-action: manipulation; }
+.product-card-wrapper { min-width: 0; }
+.category-tabs { gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.category-tab-btn { min-height: 46px; padding: 10px 18px; font-size: 14px; white-space: nowrap; }
+.line button { min-width: 44px; min-height: 44px; font-size: 22px; border-radius: 10px; }
+.line { gap: 8px; align-items: center; }
+.touch-dialog, .kds-dialog { border: 0; border-radius: 20px; padding: 0; box-shadow: var(--shadow-lg); }
+.touch-dialog::backdrop, .kds-dialog::backdrop { background: rgba(31, 20, 15, .58); }
+.touch-dialog { width: min(560px, 94vw); }
+.touch-dialog form { padding: 22px; }
+.touch-dialog header, .kds-shell header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee3da; padding-bottom:14px; }
+.touch-dialog h2, .kds-shell h2 { margin:0; color:var(--primary); }
+.modifier-options { display:grid; gap:16px; padding:18px 0; }
+.modifier-group h3 { margin:0 0 8px; font-size:14px; }
+.modifier-choice-row { display:flex; gap:8px; flex-wrap:wrap; }
+.modifier-choice-row button { min-height:48px; padding:8px 15px; border:1px solid #dac9bb; border-radius:11px; background:#fff; font:600 14px Prompt,sans-serif; color:var(--primary); }
+.modifier-choice-row button.selected { background:var(--primary); color:#fff; border-color:var(--primary); }
+.touch-dialog-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid #eee3da; padding-top:16px; font-weight:700; font-size:20px; color:var(--primary); }
+.touch-dialog-footer .primary { min-height:52px; padding:10px 20px; }
+.kds-dialog { width:100vw; max-width:none; height:100vh; max-height:none; background:#f7f4f0; }
+.kds-shell { min-height:100%; padding:clamp(18px,3vw,42px); }
+.kds-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; padding-top:24px; }
+.kds-card { min-height:280px; padding:22px; border-radius:18px; border:3px solid; display:flex; flex-direction:column; box-shadow:var(--shadow-md); }
+.kds-card.pending { background:#fff8dc; border-color:#f0b429; }
+.kds-card.cooking { background:#e8f4ff; border-color:#3299e8; }
+.kds-card.completed { background:#e9f8ed; border-color:#31a35a; }
+.kds-queue { font-size:32px; line-height:1; }.kds-card h3 { font-size:23px; margin:18px 0 8px; }.kds-options { font-size:15px; min-height:44px; margin:0; }.kds-wait { margin-top:auto; font-weight:700; }.kds-card button { min-height:58px; font:700 18px Prompt,sans-serif; border:0; border-radius:12px; color:#fff; background:var(--primary); }.kds-card.pending button {background:#d88800}.kds-card.cooking button {background:#177fc4}.kds-card.completed button {background:#258444;opacity:.78}
+.numpad-dialog { width:min(390px,94vw); }.numpad-value { display:block; min-height:58px; margin:18px 0; padding:10px 14px; text-align:right; font-size:30px; background:#f7f0ea; border-radius:10px; }.numpad-keys { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }.numpad-keys button { min-height:62px; border:1px solid #dfd0c4; background:#fff; color:var(--primary); border-radius:12px; font:700 23px Prompt,sans-serif; }
+@media (max-width: 900px) { .workspace { grid-template-columns:minmax(0,3fr) minmax(300px,2fr) !important; gap:14px; padding:0 12px; }.catalog,.cart { padding:16px; }.grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }

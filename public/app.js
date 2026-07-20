@@ -1,9 +1,18 @@
+/* ============================================================
+   Caffé Aroma POS — app.js
+   Single-barista optimized POS frontend logic
+   ============================================================ */
+
+'use strict';
+
+// ── Global state ──────────────────────────────────────────────
 let state = {
   products: [],
   cart: [],
   features: {},
   categories: [],
   inventory: [],
+  channels: [],
   recipesData: [],
   selectedCategory: 'all',
   selectedStockCategory: 'all'
@@ -11,726 +20,712 @@ let state = {
 let adminPin = '';
 let currentMember = null;
 let checkoutPayload = null;
-let currentEditRecipeItems = []; // Stores structured recipe items during product edit
+let currentEditRecipeItems = [];
 
+// ── Utilities ─────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
-const money = n => `฿${Number(n).toFixed(2)}`;
-const esc = v => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const money = n => `฿${Number(n || 0).toFixed(2)}`;
 
-const note = (m, t = 'success') => {
-  const n = $('#notice');
-  if (n) {
-    n.textContent = m;
-    n.className = t;
-    setTimeout(() => { n.className = '' }, 4000);
-  }
-};
-
-async function api(url, opt = {}) {
-  const r = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(adminPin ? { 'x-admin-pin': adminPin } : {})
-    },
-    ...opt
-  });
-  const d = await r.json();
-  if (!r.ok) throw Error(d.error || 'เชื่อมต่อระบบไม่สำเร็จ');
-  return d;
+function showNotice(msg, type = 'success') {
+  const el = $('#notice');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = type;
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
 }
 
-// -----------------------------------------
-// WORKSPACE CATALOG & PRODUCT SELECTION
-// -----------------------------------------
-function filtered() {
-  const q = $('#search').value.toLowerCase();
-  const c = state.selectedCategory || 'all';
-  return state.products.filter(p => (c === 'all' || p.category === c) && p.name.toLowerCase().includes(q));
+async function api(url, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (adminPin) headers['x-admin-pin'] = adminPin;
+  const res = await fetch(url, { headers, ...opts });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
 }
 
-function renderCategoryTabs() {
-  const container = $('#category-tabs');
-  if (!container) return;
-
-  const categories = [{ category_key: 'all', name: 'ทุกหมวด' }, ...state.categories];
-  container.replaceChildren(...categories.map(c => {
-    const btn = document.createElement('button');
-    btn.className = `category-tab-btn ${state.selectedCategory === c.category_key ? 'active' : ''}`;
-    btn.textContent = c.name;
-    btn.type = 'button';
-    btn.onclick = () => {
-      state.selectedCategory = c.category_key;
-      renderCategoryTabs();
-      renderProducts();
-    };
-    return btn;
-  }));
-}
-
-function showRecipePopover(product) {
-  const pop = $('#recipe-popover');
-  if (!pop) return;
-  
-  const recipe = state.recipesData.find(x => x.id === product.id);
-  $('#recipe-pop-title').textContent = `${product.emoji} สูตรชง: ${product.name}`;
-  
-  let itemsHtml = '';
-  if (recipe && recipe.items && recipe.items.length) {
-    itemsHtml = recipe.items.map(x => `
-      <div style="display:flex; justify-content:space-between; margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid #fcfaf8;">
-        <span>• ${x.name}</span>
-        <span style="font-weight:600; color:var(--primary);">${x.quantity} ${x.unit}</span>
-      </div>
-    `).join('');
-  } else {
-    itemsHtml = '<span style="color:#aaa; font-style:italic;">ไม่ได้ระบุวัตถุดิบและอุปกรณ์</span>';
-  }
-  
-  $('#recipe-pop-items').innerHTML = itemsHtml;
-  $('#recipe-pop-description').textContent = recipe && recipe.description ? recipe.description : 'ไม่ได้ระบุขั้นตอนคำอธิบาย';
-  pop.showModal();
-}
-
-function renderProducts() {
-  renderCategoryTabs();
-  const items = filtered();
-  $('#product-count').textContent = `${items.length} เมนู`;
-  const root = $('#products');
-  root.replaceChildren(...items.map(p => {
-    const card = document.createElement('div');
-    card.className = 'product-card-wrapper';
-    card.style.position = 'relative';
-
-    // Check stock level dynamically using recipe items
-    let stockInfo = '';
-    const recipe = state.recipesData.find(x => x.id === p.id);
-    if (recipe && recipe.items && recipe.items.length) {
-      let isOut = false;
-      let isLow = false;
-      let minLowText = '';
-      
-      for (const rItem of recipe.items) {
-        const stock = state.inventory.find(x => x.stock_key === rItem.stock_key);
-        if (stock) {
-          if (stock.quantity <= 0) {
-            isOut = true;
-          } else if (stock.quantity <= stock.low_alert) {
-            isLow = true;
-            minLowText = `วัตถุดิบใกล้หมด`;
-          }
-        }
-      }
-      
-      if (isOut) {
-        stockInfo = '<span class="stock-badge empty">หมด</span>';
-      } else if (isLow) {
-        stockInfo = `<span class="stock-badge low">${minLowText}</span>`;
-      }
-    } else if (p.stock_key) {
-      // Fallback stock key check
-      const stock = state.inventory.find(x => x.stock_key === p.stock_key);
-      if (stock) {
-        if (stock.quantity <= 0) {
-          stockInfo = '<span class="stock-badge empty">หมด</span>';
-        } else if (stock.quantity <= stock.low_alert) {
-          stockInfo = `<span class="stock-badge low">ใกล้หมด (${stock.quantity})</span>`;
-        }
-      }
-    }
-
-    const b = document.createElement('button');
-    b.className = 'product';
-    b.innerHTML = `<span>${p.emoji}</span><b></b><small>${money(p.price)}</small>${stockInfo}`;
-    b.querySelector('b').textContent = p.name;
-    b.onclick = () => add(p);
-    
-    // Add recipe view lookup icon
-    const recipeBtn = document.createElement('button');
-    recipeBtn.className = 'quick-recipe-btn';
-    recipeBtn.innerHTML = '📖';
-    recipeBtn.title = 'ดูสูตรชงด่วน';
-    recipeBtn.onclick = (e) => {
-      e.stopPropagation();
-      showRecipePopover(p);
-    };
-
-    card.append(b, recipeBtn);
-    return card;
-  }));
-}
-
-// -----------------------------------------
-// CART LOGIC & CHECKOUT CONTROL
-// -----------------------------------------
-function add(product) {
-  const recipe = state.recipesData.find(x => x.id === product.id);
-  const cartItem = state.cart.find(x => x.product.id === product.id);
-  const currentQty = cartItem ? cartItem.qty : 0;
-  
-  if (recipe && recipe.items && recipe.items.length) {
-    // Multi-item recipe check
-    for (const rItem of recipe.items) {
-      const stock = state.inventory.find(inv => inv.stock_key === rItem.stock_key);
-      if (stock && (currentQty + 1) * rItem.quantity > stock.quantity) {
-        return note(`สต็อก ${stock.name} ไม่เพียงพอ`, 'error');
-      }
-    }
-  } else if (product.stock_key) {
-    // Fallback check
-    const stock = state.inventory.find(x => x.stock_key === product.stock_key);
-    if (stock && currentQty >= stock.quantity) {
-      return note(`สต็อก ${product.name} ไม่เพียงพอ`, 'error');
-    }
-  }
-
-  const x = state.cart.find(x => x.product.id === product.id);
-  x ? x.qty++ : state.cart.push({ product, qty: 1 });
-  renderCart();
-
-  // Trigger pulse animation
-  const badge = $('#count');
-  badge.classList.remove('pulse');
-  void badge.offsetWidth;
-  badge.classList.add('pulse');
-}
-
-function renderCart() {
-  const root = $('#cart');
-  root.replaceChildren();
-  let sum = 0;
-  state.cart.forEach((x, i) => {
-    sum += x.product.price * x.qty;
-    const row = document.createElement('div');
-    row.className = 'line';
-    const minus = document.createElement('button');
-    minus.textContent = '−';
-    minus.onclick = () => { if (--x.qty === 0) state.cart.splice(i, 1); renderCart() };
-    const plus = document.createElement('button');
-    plus.textContent = '+';
-    plus.onclick = () => {
-      const recipe = state.recipesData.find(r => r.id === x.product.id);
-      if (recipe && recipe.items && recipe.items.length) {
-        for (const rItem of recipe.items) {
-          const stock = state.inventory.find(inv => inv.stock_key === rItem.stock_key);
-          if (stock && (x.qty + 1) * rItem.quantity > stock.quantity) {
-            return note(`สต็อก ${stock.name} ไม่เพียงพอ`, 'error');
-          }
-        }
-      } else if (x.product.stock_key) {
-        const stock = state.inventory.find(inv => inv.stock_key === x.product.stock_key);
-        if (stock && x.qty >= stock.quantity) {
-          return note(`สต็อก ${x.product.name} ไม่เพียงพอ`, 'error');
-        }
-      }
-      x.qty++;
-      renderCart();
-    };
-    
-    const infoSpan = document.createElement('span');
-    infoSpan.textContent = `${x.product.name} × ${x.qty}`;
-    
-    row.append(infoSpan, minus, ` ${money(x.product.price * x.qty)} `, plus);
-    root.append(row);
-  });
-  const d = Math.min(Number($('#discount').value) || 0, sum);
-  $('#count').textContent = state.cart.reduce((n, x) => n + x.qty, 0);
-  $('#total').textContent = money(sum - d);
-}
-
-// -----------------------------------------
-// CASH REGISTER CHEKOUT & E-RECEIPT DISPLAY
-// -----------------------------------------
-async function executeCheckout() {
-  try {
-    const r = await api('/api/orders', {
-      method: 'POST',
-      body: JSON.stringify(checkoutPayload)
-    });
-    
-    state.cart = [];
-    $('#discount').value = 0;
-    $('#member-phone').value = '';
-    searchMember();
-    await load();
-    checkoutPayload = null;
-    
-    showReceipt(r);
-  } catch (e) {
-    note(e.message, 'error');
-  }
-}
-
-async function checkout() {
-  if (!state.cart.length) return note('กรุณาเพิ่มสินค้า', 'error');
-
-  let sum = state.cart.reduce((n, x) => n + x.product.price * x.qty, 0);
-  const d = Math.min(Number($('#discount').value) || 0, sum);
-  const totalBill = sum - d;
-
-  checkoutPayload = {
-    items: state.cart.map(x => ({ productId: x.product.id, quantity: x.qty })),
-    discount: d,
-    paymentType: $('#payment').value,
-    memberPhone: currentMember ? currentMember.phone : null,
-    received: totalBill,
-    changeDue: 0
-  };
-
-  if ($('#payment').value === 'cash') {
-    $('#calc-total-bill').textContent = money(totalBill);
-    $('#calc-received-input').value = '';
-    $('#calc-change-amount').textContent = money(0);
-    $('#calc-change-amount').style.color = '#27ae60';
-    $('#checkout-calc-dialog').showModal();
-  } else {
-    checkoutPayload.received = totalBill;
-    checkoutPayload.changeDue = 0;
-    await executeCheckout();
-  }
-}
-
-function showReceipt(order) {
-  $('#receipt-date').textContent = `วันที่: ${new Date(order.createdAt).toLocaleString('th-TH')}`;
-  $('#receipt-tx').textContent = `บิล: ${order.id}`;
-  
-  const itemsContainer = $('#receipt-items');
-  itemsContainer.replaceChildren();
-  
-  let itemsHtml = '';
-  if (order.items && order.items.length) {
-    itemsHtml = order.items.map(x => `
-      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-        <span>${x.name} x ${x.quantity}</span>
-        <span>${money(x.unit_price * x.quantity)}</span>
-      </div>
-    `).join('');
-  } else {
-    itemsHtml = state.cart.map(x => `
-      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-        <span>${x.product.name} x ${x.qty}</span>
-        <span>${money(x.product.price * x.qty)}</span>
-      </div>
-    `).join('');
-  }
-  itemsContainer.innerHTML = itemsHtml;
-  
-  $('#receipt-subtotal').textContent = money(order.subtotal);
-  $('#receipt-discount').textContent = money(order.discount);
-  $('#receipt-total').textContent = money(order.total);
-  
-  const isCash = order.paymentType === 'cash';
-  $('#receipt-payment').textContent = isCash ? 'เงินสด' : 'สแกน QR';
-  
-  if (isCash) {
-    $('#receipt-cash-received-row').style.display = 'flex';
-    $('#receipt-cash-change-row').style.display = 'flex';
-    $('#receipt-received').textContent = money(order.received);
-    $('#receipt-change').textContent = money(order.changeDue);
-  } else {
-    $('#receipt-cash-received-row').style.display = 'none';
-    $('#receipt-cash-change-row').style.display = 'none';
-  }
-  
-  const mRow = $('#receipt-member-row');
-  if (order.memberPhone) {
-    mRow.style.display = 'flex';
-    mRow.querySelector('span:last-child').textContent = `+${Math.floor(order.total / 10)} คะแนน (${order.memberPhone})`;
-  } else {
-    mRow.style.display = 'none';
-  }
-  
-  $('#receipt-dialog').showModal();
-}
-
-// -----------------------------------------
-// CASH CHANGE CALCULATOR LOGIC
-// -----------------------------------------
-function updateCalcChange() {
-  let sum = state.cart.reduce((n, x) => n + x.product.price * x.qty, 0);
-  const d = Math.min(Number($('#discount').value) || 0, sum);
-  const totalBill = sum - d;
-  
-  const received = Number($('#calc-received-input').value) || 0;
-  const change = received - totalBill;
-  const changeLabel = $('#calc-change-amount');
-  
-  if (received === 0) {
-    changeLabel.textContent = money(0);
-    changeLabel.style.color = '#27ae60';
-  } else if (change < 0) {
-    changeLabel.textContent = 'ยอดเงินไม่พอ';
-    changeLabel.style.color = '#c0392b';
-  } else {
-    changeLabel.textContent = money(change);
-    changeLabel.style.color = '#27ae60';
-  }
-}
-
-$('#calc-received-input').oninput = updateCalcChange;
-
-document.querySelectorAll('.quick-cash-btn').forEach(btn => {
-  btn.onclick = async () => {
-    let sum = state.cart.reduce((n, x) => n + x.product.price * x.qty, 0);
-    const d = Math.min(Number($('#discount').value) || 0, sum);
-    const totalBill = sum - d;
-    
-    const val = btn.getAttribute('data-value');
-    let received = 0;
-    if (val === 'exact') {
-      received = Math.ceil(totalBill);
-    } else {
-      received = Number(val);
-    }
-    
-    $('#calc-received-input').value = received;
-    updateCalcChange();
-    
-    if (received >= totalBill) {
-      checkoutPayload.received = received;
-      checkoutPayload.changeDue = received - totalBill;
-      $('#checkout-calc-dialog').close();
-      await executeCheckout();
-    }
-  };
-});
-
-$('#calc-submit-btn').onclick = async () => {
-  let sum = state.cart.reduce((n, x) => n + x.product.price * x.qty, 0);
-  const d = Math.min(Number($('#discount').value) || 0, sum);
-  const totalBill = sum - d;
-  
-  const received = Number($('#calc-received-input').value) || 0;
-  if (received < totalBill) {
-    alert('กรุณารับยอดเงินให้เพียงพอกับค่าสินค้า');
-    return;
-  }
-  
-  checkoutPayload.received = received;
-  checkoutPayload.changeDue = received - totalBill;
-  
-  $('#checkout-calc-dialog').close();
-  await executeCheckout();
-};
-
-$('#checkout-calc-dialog').querySelector('.close').onclick = () => {
-  $('#checkout-calc-dialog').close();
-  checkoutPayload = null;
-};
-
-// -----------------------------------------
-// SOLO QUICK BREW QUEUE
-// -----------------------------------------
-async function renderQuickBrewQueue() {
-  const container = $('#quick-brew-list');
-  if (!container) return;
-  
-  try {
-    const rows = await api('/api/kds');
-    const activeBrews = rows.filter(x => x.status !== 'completed');
-    
-    if (activeBrews.length === 0) {
-      container.innerHTML = '<div class="empty-state">ไม่มีรายการค้างชง</div>';
-      return;
-    }
-    
-    container.replaceChildren(...activeBrews.map(x => {
-      const card = document.createElement('div');
-      card.className = 'brew-card';
-      
-      const isCooking = x.status === 'cooking';
-      card.style.cssText = `border-left: 4px solid ${isCooking ? '#3498db' : '#f39c12'}; background:#fff; padding:10px; border-radius:8px; border:1px solid #f1e7de; border-left-width:5px; margin-bottom:8px; display:flex; flex-direction:column; gap:4px; font-size:12px;`;
-      
-      const titleSpan = document.createElement('span');
-      titleSpan.style.cssText = 'font-weight:700; font-size:13px; color:var(--text-main);';
-      titleSpan.textContent = `${x.name} × ${x.quantity}`;
-      
-      const orderSpan = document.createElement('span');
-      orderSpan.style.cssText = 'color:#888; font-size:10px;';
-      orderSpan.textContent = `บิล: ${x.order_id} | ${new Date(x.created_at).toLocaleTimeString('th-TH')}`;
-      
-      const recipeLink = document.createElement('span');
-      recipeLink.style.cssText = 'color:var(--accent); text-decoration:underline; cursor:pointer; font-size:10.5px; width:fit-content;';
-      recipeLink.textContent = 'ดูสูตรชง';
-      recipeLink.onclick = () => {
-        const prod = state.products.find(p => p.name === x.name);
-        if (prod) showRecipePopover(prod);
-      };
-
-      const btnRow = document.createElement('div');
-      btnRow.style.cssText = 'display:flex; justify-content:flex-end; margin-top:4px;';
-      
-      const actionBtn = document.createElement('button');
-      actionBtn.type = 'button';
-      actionBtn.style.cssText = `border:0; color:#fff; background:${isCooking ? '#27ae60' : '#8c6d58'}; border-radius:4px; padding:4px 10px; font-family:inherit; font-size:10px; font-weight:600; cursor:pointer;`;
-      actionBtn.textContent = isCooking ? 'เสร็จสิ้น' : 'เริ่มชง';
-      
-      actionBtn.onclick = async () => {
-        const nextStatus = isCooking ? 'completed' : 'cooking';
-        try {
-          await api(`/api/kds/items/${x.id}/status`, {
-            method: 'PUT',
-            body: JSON.stringify({ status: nextStatus })
-          });
-          await renderQuickBrewQueue();
-          await load();
-        } catch (e) {
-          note(e.message, 'error');
-        }
-      };
-      
-      btnRow.append(actionBtn);
-      card.append(titleSpan, orderSpan, recipeLink, btnRow);
-      return card;
-    }));
-  } catch (e) {
-    container.textContent = 'คิวชงไม่พร้อมใช้งาน';
-  }
-}
-
-// -----------------------------------------
-// EXPRESS MEMBER REGISTRATION
-// -----------------------------------------
-async function searchMember() {
-  const phone = $('#member-phone').value.replace(/\D/g, '');
-  const info = $('#member-info');
-  const regBtn = $('#register-member-btn');
-
-  if (phone.length < 9) {
-    info.textContent = '';
-    info.className = 'member-info';
-    regBtn.style.display = 'none';
-    currentMember = null;
-    return;
-  }
+// ── Bootstrap / Load ─────────────────────────────────────────
+async function load() {
+  const savedCart = state.cart;
+  const savedCategory = state.selectedCategory;
+  const savedStockCat = state.selectedStockCategory;
 
   try {
-    const member = await api(`/api/members/${phone}`);
-    info.textContent = `✓ ${member.name} (${member.points} แต้ม)`;
-    info.className = 'member-info success';
-    regBtn.style.display = 'none';
-    currentMember = member;
+    const boot = await api('/api/bootstrap');
+    state.products = boot.products || [];
+    state.features = boot.features || {};
+    state.categories = boot.categories || [];
+    state.inventory = boot.inventory || [];
+    state.channels = boot.channels || [];
+    state.cart = savedCart;
+    state.selectedCategory = savedCategory;
+    state.selectedStockCategory = savedStockCat;
+
+    // Fetch recipes only if feature enabled (fallback to empty on 403)
+    try {
+      state.recipesData = await api('/api/recipes');
+    } catch {
+      state.recipesData = [];
+    }
+
+    applyFeatureState();
+    renderProducts();
+    renderCart();
+
+    const todayStats = await api('/api/reports/today');
+    const salesEl = $('#sales');
+    const ordersEl = $('#orders');
+    if (salesEl) salesEl.textContent = money(todayStats.sales);
+    if (ordersEl) ordersEl.textContent = todayStats.orders;
+
+    await renderQuickBrewQueue();
   } catch (e) {
-    info.textContent = '❌ ไม่พบข้อมูล';
-    info.className = 'member-info error';
-    regBtn.style.display = 'inline-block';
-    currentMember = null;
+    showNotice(e.message, 'error');
   }
 }
 
-$('#member-phone').oninput = searchMember;
-
-$('#register-member-btn').onclick = async () => {
-  const phone = $('#member-phone').value.replace(/\D/g, '');
-  if (!phone) return;
-  const defaultName = `ลูกค้าทั่วไป (${phone.slice(-4)})`;
-  try {
-    await api('/api/members', {
-      method: 'POST',
-      body: JSON.stringify({ phone, name: defaultName })
-    });
-    note('ลงทะเบียนสมาชิกด่วนสำเร็จ');
-    await searchMember();
-  } catch (e) {
-    note(e.message, 'error');
-  }
-};
-
-// -----------------------------------------
-// PORTAL & ACTIVE FEATURES SYSTEM
-// -----------------------------------------
-const featureNames = { kds: 'คิวชง', inventory: 'ตั้งค่าร้าน', members: 'สมาชิก', recipes: 'สูตรชง', reports: 'รายงาน' };
-
+// ── Feature / layout state ────────────────────────────────────
 function applyFeatureState() {
+  // Modules strip
   let strip = $('#active-modules');
   if (!strip) {
     strip = document.createElement('div');
     strip.id = 'active-modules';
     strip.className = 'modules-strip';
-    document.querySelector('.workspace').before(strip);
+    const ws = document.querySelector('.workspace');
+    if (ws) ws.before(strip);
   }
   strip.replaceChildren();
+
+  const featureLabels = { kds: '☕ คิวชง', inventory: '⚙️ ตั้งค่าร้าน', members: '👤 สมาชิก', recipes: '📖 สูตรชง', reports: '📊 รายงาน' };
   Object.entries(state.features).filter(([, on]) => on).forEach(([key]) => {
-    const displayName = key === 'inventory' ? 'ตั้งค่าร้าน' : (featureNames[key] || key);
     const b = document.createElement('button');
     b.className = 'module-tab';
-    b.textContent = displayName;
+    b.textContent = featureLabels[key] || key;
     b.onclick = () => openModule(key);
     strip.append(b);
   });
-  if (!strip.childElementCount) strip.textContent = 'ยังไม่ได้เปิดฟังก์ชันเสริม';
+  if (!strip.childElementCount) strip.style.display = 'none';
+  else strip.style.display = '';
 
+  // Quick brew sidebar
   const sidebar = $('#quick-brew-sidebar');
-  if (sidebar) {
-    sidebar.style.display = state.features.kds ? 'block' : 'none';
-    const ws = $('.workspace');
-    if (state.features.kds) {
-      ws.style.gridTemplateColumns = 'minmax(0, 1fr) 350px 280px';
-    } else {
-      ws.style.gridTemplateColumns = 'minmax(0, 1fr) 370px';
-    }
+  const ws = document.querySelector('.workspace');
+  if (sidebar && ws) {
+    const kdsOn = !!state.features.kds;
+    sidebar.style.display = 'none';
+    ws.style.gridTemplateColumns = 'minmax(0,3fr) minmax(340px,2fr)';
   }
 
+  // Reports button visibility
   const repBtn = $('#reportsBtn');
   if (repBtn) repBtn.style.display = state.features.reports ? 'flex' : 'none';
 
-  const memberSection = $('.member-section');
-  if (memberSection) memberSection.style.display = state.features.members ? 'block' : 'none';
+  // Members section
+  const memberSec = document.querySelector('.member-section');
+  if (memberSec) memberSec.style.display = state.features.members ? 'block' : 'none';
 }
 
-async function openModule(key) {
-  if (key === 'reports') {
-    $('#reportsBtn').click();
-    return;
-  }
-  if (key === 'inventory') {
-    $('#settingsBtn').click();
-    const stockTab = document.querySelector('.admin-tab-btn[data-tab="tab-inventory"]');
-    if (stockTab) stockTab.click();
-    return;
+function openModule(key) {
+  if (key === 'reports') { const rb = $('#reportsBtn'); rb && rb.click(); return; }
+  if (key === 'kds') { openKdsMode(); return; }
+  if (key === 'inventory' || key === 'members' || key === 'recipes') {
+    const settingsBtn = $('#settingsBtn');
+    if (settingsBtn) settingsBtn.click();
+    const tabBtn = document.querySelector('.admin-tab-btn[data-tab="tab-inventory"]');
+    if (tabBtn) tabBtn.click();
   }
 }
 
-async function load() {
-  const cart = state.cart;
-  state = await api('/api/bootstrap');
-  state.cart = cart;
-  
-  state.recipesData = await api('/api/recipes');
-  
-  applyFeatureState();
-  renderProducts();
+// ── Products catalog ──────────────────────────────────────────
+function getFilteredProducts() {
+  const q = ($('#search')?.value || '').toLowerCase();
+  const cat = state.selectedCategory;
+  return state.products.filter(p =>
+    (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(q)
+  );
+}
+
+function renderCategoryTabs() {
+  const container = $('#category-tabs');
+  if (!container) return;
+  const all = [{ category_key: 'all', name: '🏠 ทุกหมวด' }, ...state.categories];
+  container.replaceChildren(...all.map(c => {
+    const btn = document.createElement('button');
+    btn.className = 'category-tab-btn' + (state.selectedCategory === c.category_key ? ' active' : '');
+    btn.textContent = c.name;
+    btn.type = 'button';
+    btn.onclick = () => { state.selectedCategory = c.category_key; renderProducts(); };
+    return btn;
+  }));
+}
+
+function getStockStatus(product) {
+  const recipe = state.recipesData.find(r => r.id === product.id);
+  let isOut = false, isLow = false;
+
+  if (recipe && recipe.items && recipe.items.length) {
+    for (const ri of recipe.items) {
+      const stock = state.inventory.find(x => x.stock_key === ri.stock_key);
+      if (!stock) continue;
+      if (stock.quantity <= 0) isOut = true;
+      else if (stock.quantity <= stock.low_alert) isLow = true;
+    }
+  } else if (product.stock_key) {
+    const stock = state.inventory.find(x => x.stock_key === product.stock_key);
+    if (stock) {
+      if (stock.quantity <= 0) isOut = true;
+      else if (stock.quantity <= stock.low_alert) isLow = true;
+    }
+  }
+  return isOut ? 'out' : isLow ? 'low' : 'ok';
+}
+
+let modifierProduct = null;
+let modifierOptions = { temperature: 'iced', sweetness: 100, milk: 'fresh', toppings: [] };
+function modifierExtra(options) { return (options.milk === 'oat' ? 15 : options.milk === 'soy' ? 10 : 0) + (options.toppings.includes('extraShot') ? 15 : 0) + (options.toppings.includes('whippedCream') ? 10 : 0); }
+function modifierSummary(options) { const labels={hot:'ร้อน',iced:'เย็น',blended:'ปั่น',fresh:'นมสด',oat:'นมโอ๊ต',soy:'นมถั่วเหลือง',extraShot:'เพิ่มช็อต',whippedCream:'วิปครีม'}; return [labels[options.temperature],`หวาน ${options.sweetness}%`,labels[options.milk],...options.toppings.map(x=>labels[x])].join(' · '); }
+function openModifierModal(product) { modifierProduct=product; modifierOptions={temperature:'iced',sweetness:100,milk:'fresh',toppings:[]}; $('#modifier-title').textContent=`${product.emoji} ${product.name}`; renderModifierModal(); $('#modifier-dialog')?.showModal(); }
+function renderModifierModal() { const root=$('#modifier-options'); if(!root || !modifierProduct) return; root.replaceChildren(); const groups=[['temperature','ประเภท',[['hot','ร้อน'],['iced','เย็น'],['blended','ปั่น']]],['sweetness','ระดับความหวาน',[[0,'0%'],[25,'25%'],[50,'50%'],[100,'100%']]],['milk','ชนิดนม',[['fresh','นมสด'],['oat','นมโอ๊ต +15'],['soy','นมถั่วเหลือง +10']]]]; groups.forEach(([key,label,values])=>{const sec=document.createElement('section');sec.className='modifier-group';const h=document.createElement('h3');h.textContent=label;const row=document.createElement('div');row.className='modifier-choice-row';values.forEach(([value,text])=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.className=String(modifierOptions[key])===String(value)?'selected':'';b.onclick=()=>{modifierOptions[key]=value;renderModifierModal();};row.append(b);});sec.append(h,row);root.append(sec);});const sec=document.createElement('section');sec.className='modifier-group';const h=document.createElement('h3');h.textContent='ท็อปปิ้งเพิ่ม';const row=document.createElement('div');row.className='modifier-choice-row';[['extraShot','เพิ่มช็อต +15'],['whippedCream','วิปครีม +10']].forEach(([value,text])=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.className=modifierOptions.toppings.includes(value)?'selected':'';b.onclick=()=>{modifierOptions.toppings=modifierOptions.toppings.includes(value)?modifierOptions.toppings.filter(x=>x!==value):[...modifierOptions.toppings,value];renderModifierModal();};row.append(b);});sec.append(h,row);root.append(sec);$('#modifier-price').textContent=money(modifierProduct.price+modifierExtra(modifierOptions)); }
+function confirmModifier() { if(!modifierProduct) return; addToCart(modifierProduct,{...modifierOptions,toppings:[...modifierOptions.toppings]}); $('#modifier-dialog')?.close(); }
+
+function renderProducts() {
+  renderCategoryTabs();
+  const items = getFilteredProducts();
+  const countEl = $('#product-count');
+  if (countEl) countEl.textContent = `${items.length} เมนู`;
+  const root = $('#products');
+  if (!root) return;
+  root.replaceChildren();
+
+  if (items.length === 0) {
+    root.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">ไม่พบสินค้าในหมวดหมู่นี้</div>';
+    return;
+  }
+
+  items.forEach(p => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'product-card-wrapper';
+    const status = getStockStatus(p);
+
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'product' + (status === 'out' ? ' product-out' : '');
+    card.disabled = status === 'out';
+
+    const emoji = document.createElement('span');
+    emoji.textContent = p.emoji;
+    const name = document.createElement('b');
+    name.textContent = p.name;
+    const price = document.createElement('small');
+    price.textContent = money(p.price);
+    card.append(emoji, name, price);
+
+    if (status === 'low') {
+      const badge = document.createElement('span');
+      badge.className = 'stock-badge low';
+      badge.textContent = 'ใกล้หมด';
+      card.append(badge);
+    }
+    if (status === 'out') {
+      const badge = document.createElement('span');
+      badge.className = 'stock-badge empty';
+      badge.textContent = 'หมด';
+      card.append(badge);
+    }
+
+    let pressTimer, longPressed = false;
+    card.onclick = () => { if (longPressed) { longPressed = false; return; } openModifierModal(p); };
+    card.onpointerdown = () => { longPressed = false; pressTimer = setTimeout(() => { pressTimer = null; longPressed = true; showRecipePopover(p); }, 600); };
+    ['pointerup','pointerleave','pointercancel'].forEach(event => card.addEventListener(event, () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = null; }));
+
+    const recipeBtn = document.createElement('button');
+    recipeBtn.type = 'button';
+    recipeBtn.className = 'quick-recipe-btn';
+    recipeBtn.title = 'ดูสูตรชง';
+    recipeBtn.textContent = '📖';
+    recipeBtn.onclick = e => { e.stopPropagation(); showRecipePopover(p); };
+
+    wrapper.append(card, recipeBtn);
+    root.append(wrapper);
+  });
+}
+
+// ── Recipe popover ────────────────────────────────────────────
+function showRecipePopover(product) {
+  const pop = $('#recipe-popover');
+  if (!pop) return;
+  const recipe = state.recipesData.find(r => r.id === product.id);
+  const titleEl = $('#recipe-pop-title');
+  const itemsEl = $('#recipe-pop-items');
+  const descEl = $('#recipe-pop-description');
+  if (titleEl) titleEl.textContent = `${product.emoji} สูตรชง: ${product.name}`;
+
+  if (itemsEl) {
+    if (recipe && recipe.items && recipe.items.length) {
+      itemsEl.innerHTML = recipe.items.map(x =>
+        `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f1ebe5;">
+          <span>• ${x.name}</span>
+          <span style="font-weight:700;color:var(--primary)">${x.quantity} ${x.unit}</span>
+        </div>`
+      ).join('');
+    } else {
+      itemsEl.innerHTML = '<span style="color:#aaa;font-style:italic;">ยังไม่ได้ตั้งวัตถุดิบในสูตรชง</span>';
+    }
+  }
+  if (descEl) {
+    descEl.textContent = recipe?.description || 'ยังไม่ได้ระบุขั้นตอนการชง';
+  }
+  pop.showModal();
+}
+
+// ── Cart ───────────────────────────────────────────────────────
+function canAddToCart(product, deltaQty = 1) {
+  const recipe = state.recipesData.find(r => r.id === product.id);
+  const currentQty = state.cart.filter(x => x.product.id === product.id).reduce((sum, x) => sum + x.qty, 0);
+  const newQty = currentQty + deltaQty;
+
+  if (recipe && recipe.items && recipe.items.length) {
+    for (const ri of recipe.items) {
+      const stock = state.inventory.find(s => s.stock_key === ri.stock_key);
+      if (stock && newQty * ri.quantity > stock.quantity) {
+        return { ok: false, msg: `สต็อก "${stock.name}" ไม่เพียงพอ (มี ${stock.quantity} ${stock.unit})` };
+      }
+    }
+  } else if (product.stock_key) {
+    const stock = state.inventory.find(s => s.stock_key === product.stock_key);
+    if (stock && newQty > stock.quantity) {
+      return { ok: false, msg: `สต็อก "${stock.name}" ไม่เพียงพอ` };
+    }
+  }
+  return { ok: true };
+}
+
+function addToCart(product, options = { temperature:'iced', sweetness:100, milk:'fresh', toppings:[] }) {
+  const check = canAddToCart(product, 1);
+  if (!check.ok) return showNotice(check.msg, 'error');
+  const key = `${product.id}:${JSON.stringify(options)}`;
+  const existing = state.cart.find(x => x.key === key);
+  if (existing) existing.qty++;
+  else state.cart.push({ product, options, unitPrice: product.price + modifierExtra(options), key, qty: 1 });
   renderCart();
-  await renderQuickBrewQueue();
-  
-  const r = await api('/api/reports/today');
-  $('#sales').textContent = money(r.sales);
-  $('#orders').textContent = r.orders;
+  const badge = $('#count');
+  if (badge) { badge.classList.remove('pulse'); void badge.offsetWidth; badge.classList.add('pulse'); }
 }
 
-// -----------------------------------------
-// SALES REPORTS & TRANSACTIONS LOG
-// -----------------------------------------
-$('#reportsBtn').onclick = async () => {
-  if (!state.features.reports) return;
-  
-  try {
-    const analytics = await api('/api/reports/analytics');
-    const transactions = await api('/api/reports/transactions');
-    
-    const sumTotalSales = transactions.reduce((n, o) => n + o.total, 0);
-    const totalBills = transactions.length;
-    const avgBill = totalBills ? sumTotalSales / totalBills : 0;
-    
-    $('#rep-total-sales').textContent = money(sumTotalSales);
-    $('#rep-total-orders').textContent = `${totalBills} บิล`;
-    $('#rep-avg-bill').textContent = money(avgBill);
-    
-    const catContainer = $('#rep-category-sales-list');
-    catContainer.replaceChildren();
-    if (analytics.categorySales.length === 0) {
-      catContainer.innerHTML = '<p style="font-size:12px; color:#888;">ไม่มีข้อมูลยอดขาย</p>';
-    } else {
-      const highestSales = Math.max(...analytics.categorySales.map(x => x.sales), 1);
-      analytics.categorySales.forEach(x => {
-        const item = document.createElement('div');
-        item.style.cssText = 'font-size:12px; margin-bottom:6px;';
-        const pct = (x.sales / highestSales) * 100;
-        const groupNames = { coffee: '☕ กาแฟ', tea: '🧋 ชาและนม', bakery: '🥐 เบเกอรี่', other: '☕ อื่น ๆ' };
-        const label = groupNames[x.category] || x.category;
-        
-        item.innerHTML = `
-          <div style="display:flex; justify-content:space-between; font-weight:600; margin-bottom:2px;">
-            <span>${label}</span>
-            <span>${money(x.sales)}</span>
-          </div>
-          <div style="background:#f1ebe5; border-radius:4px; height:8px; overflow:hidden;">
-            <div style="background:#8c6d58; height:100%; width:${pct}%;"></div>
-          </div>
-        `;
-        catContainer.append(item);
-      });
-    }
-    
-    const topContainer = $('#rep-top-sellers-list');
-    topContainer.replaceChildren();
-    if (analytics.topSellers.length === 0) {
-      topContainer.innerHTML = '<p style="font-size:12px; color:#888;">ไม่มีข้อมูลยอดขาย</p>';
-    } else {
-      analytics.topSellers.forEach((x, idx) => {
-        const item = document.createElement('div');
-        item.style.cssText = 'font-size:12px; display:flex; justify-content:space-between; border-bottom:1px solid #f9f6f3; padding:4px 0;';
-        item.innerHTML = `
-          <span>${idx + 1}. <b>${x.name}</b> (${x.qty} ชิ้น)</span>
-          <span style="font-weight:600; color:#8c5d43;">${money(x.revenue)}</span>
-        `;
-        topContainer.append(item);
-      });
-    }
-    
-    const pmContainer = $('#rep-payment-methods');
-    const cashSales = analytics.paymentSales.find(x => x.payment_type === 'cash')?.sales || 0;
-    const qrSales = analytics.paymentSales.find(x => x.payment_type === 'qr')?.sales || 0;
-    pmContainer.innerHTML = `
-      <div style="text-align:center; flex:1;">
-        <span style="font-size:11px; color:#888;">💵 เงินสด</span>
-        <div style="font-size:16px; font-weight:700; color:var(--primary); margin-top:2px;">${money(cashSales)}</div>
-      </div>
-      <div style="border-left:1px dashed #dfcec0;"></div>
-      <div style="text-align:center; flex:1;">
-        <span style="font-size:11px; color:#888;">📱 สแกน QR</span>
-        <div style="font-size:16px; font-weight:700; color:var(--primary); margin-top:2px;">${money(qrSales)}</div>
-      </div>
-    `;
-    
-    const txContainer = $('#rep-transactions-list');
-    txContainer.replaceChildren();
-    if (transactions.length === 0) {
-      txContainer.innerHTML = '<p style="font-size:12px; color:#888; text-align:center; padding:10px;">ไม่มีรายการบิล</p>';
-    } else {
-      transactions.forEach(tx => {
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; font-size:12px; padding:8px; border:1px solid #f1e7de; border-radius:8px; background:#fff; cursor:pointer; transition:all 0.15s;';
-        row.onmouseover = () => row.style.borderColor = 'var(--accent)';
-        row.onmouseout = () => row.style.borderColor = '#f1e7de';
-        
-        const timeStr = new Date(tx.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-        
-        row.innerHTML = `
-          <div>
-            <b>${tx.id}</b> <small style="color:#888;">(${timeStr})</small>
-            <div style="font-size:10.5px; color:#8c7366; margin-top:2px;">${tx.items.map(x => `${x.name} x${x.quantity}`).join(', ')}</div>
-          </div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <strong style="color:var(--primary);">${money(tx.total)}</strong>
-            <span style="font-size:10px; background:#f1ebe5; padding:2px 6px; border-radius:4px;">${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}</span>
-          </div>
-        `;
-        
-        row.onclick = () => {
-          $('#reports-dialog').close();
-          showReceipt(tx);
-        };
-        txContainer.append(row);
-      });
-    }
-    
-    $('#reports-dialog').showModal();
-  } catch (e) {
-    note(e.message, 'error');
-  }
-};
+function renderCart() {
+  const root = $('#cart');
+  if (!root) return;
+  root.replaceChildren();
 
-// -----------------------------------------
-// SETTINGS MULTI-TAB & STOCK NAVIGATION
-// -----------------------------------------
+  if (state.cart.length === 0) {
+    root.innerHTML = '<div class="empty-state">เลือกรายการจากเมนูด้านซ้าย</div>';
+  } else {
+    state.cart.forEach((item, idx) => {
+      const row = document.createElement('div');
+      row.className = 'line';
+
+      const info = document.createElement('span');
+      info.textContent = `${item.product.name} — ${modifierSummary(item.options || {temperature:'iced',sweetness:100,milk:'fresh',toppings:[]})}`;
+
+      const minus = document.createElement('button');
+      minus.textContent = '−';
+      minus.onclick = () => {
+        if (--item.qty <= 0) state.cart.splice(idx, 1);
+        renderCart();
+      };
+
+      const qtySpan = document.createElement('span');
+      qtySpan.style.cssText = 'min-width:48px;text-align:center;font-weight:700;';
+      qtySpan.textContent = `×${item.qty}`;
+
+      const plus = document.createElement('button');
+      plus.textContent = '+';
+      plus.onclick = () => {
+        const check = canAddToCart(item.product, 1);
+        if (!check.ok) return showNotice(check.msg, 'error');
+        item.qty++;
+        renderCart();
+      };
+
+      const priceSpan = document.createElement('span');
+      priceSpan.style.cssText = 'min-width:64px;text-align:right;font-weight:600;color:var(--primary);';
+      priceSpan.textContent = money((item.unitPrice || item.product.price) * item.qty);
+
+      row.append(info, minus, qtySpan, plus, priceSpan);
+      root.append(row);
+    });
+  }
+
+  // Update total
+  const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
+  const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
+  const total = subtotal - disc;
+  const totalEl = $('#total');
+  if (totalEl) totalEl.textContent = money(total);
+  const countEl = $('#count');
+  if (countEl) countEl.textContent = state.cart.reduce((s, x) => s + x.qty, 0);
+}
+
+// ── Member lookup ─────────────────────────────────────────────
+async function searchMember() {
+  const phone = ($('#member-phone')?.value || '').replace(/\D/g, '');
+  const info = $('#member-info');
+  const regBtn = $('#register-member-btn');
+  currentMember = null;
+  if (phone.length < 9) {
+    if (info) { info.textContent = ''; info.className = 'member-info'; }
+    if (regBtn) regBtn.style.display = 'none';
+    return;
+  }
+  try {
+    const member = await api(`/api/members/${phone}`);
+    if (info) { info.textContent = `✓ ${member.name} (${member.points} แต้ม)`; info.className = 'member-info success'; }
+    if (regBtn) regBtn.style.display = 'none';
+    currentMember = member;
+  } catch {
+    if (info) { info.textContent = '❌ ไม่พบสมาชิก'; info.className = 'member-info error'; }
+    if (regBtn) regBtn.style.display = 'inline-block';
+  }
+}
+
+$('#member-phone') && ($('#member-phone').oninput = searchMember);
+
+const regMemberBtn = $('#register-member-btn');
+if (regMemberBtn) {
+  regMemberBtn.onclick = async () => {
+    const phone = ($('#member-phone')?.value || '').replace(/\D/g, '');
+    if (!phone) return;
+    try {
+      await api('/api/members', { method: 'POST', body: JSON.stringify({ phone, name: `ลูกค้า (${phone.slice(-4)})` }) });
+      showNotice('สมัครสมาชิกด่วนสำเร็จ!');
+      await searchMember();
+    } catch (e) { showNotice(e.message, 'error'); }
+  };
+}
+
+// ── Checkout ──────────────────────────────────────────────────
+async function checkout() {
+  if (!state.cart.length) return showNotice('เพิ่มสินค้าในตะกร้าก่อนครับ', 'error');
+  const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
+  const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
+  const total = subtotal - disc;
+  const payType = $('#payment')?.value || 'cash';
+
+  checkoutPayload = {
+    items: state.cart.map(x => ({ productId: x.product.id, quantity: x.qty, options: x.options })),
+    discount: disc,
+    paymentType: payType,
+    memberPhone: currentMember?.phone || null,
+    received: total,
+    changeDue: 0
+  };
+
+  if (payType === 'cash') {
+    const billEl = $('#calc-total-bill');
+    if (billEl) billEl.textContent = money(total);
+    const inp = $('#calc-received-input');
+    if (inp) inp.value = '';
+    const changeEl = $('#calc-change-amount');
+    if (changeEl) { changeEl.textContent = money(0); changeEl.style.color = '#27ae60'; }
+    $('#checkout-calc-dialog')?.showModal();
+  } else {
+    await finalizeCheckout();
+  }
+}
+
+async function finalizeCheckout() {
+  if (!checkoutPayload) return;
+  try {
+    const order = await api('/api/orders', { method: 'POST', body: JSON.stringify(checkoutPayload) });
+    state.cart = [];
+    if ($('#discount')) $('#discount').value = 0;
+    if ($('#member-phone')) $('#member-phone').value = '';
+    currentMember = null;
+    checkoutPayload = null;
+    await load();
+    showReceipt(order);
+  } catch (e) {
+    showNotice(e.message, 'error');
+  }
+}
+
+// ── E-Receipt display ─────────────────────────────────────────
+function showReceipt(order) {
+  const dlg = $('#receipt-dialog');
+  if (!dlg) return;
+
+  const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+  set('#receipt-date', `วันที่: ${new Date(order.createdAt || order.created_at).toLocaleString('th-TH')}`);
+  set('#receipt-tx', `บิล: ${order.id}`);
+
+  const itemsEl = $('#receipt-items');
+  if (itemsEl) {
+    const items = order.items || [];
+    if (items.length) {
+      itemsEl.innerHTML = items.map(x =>
+        `<div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+          <span>${x.name} ×${x.quantity}</span>
+          <span>${money(x.unit_price * x.quantity)}</span>
+        </div>`
+      ).join('');
+    } else {
+      itemsEl.innerHTML = '<p style="margin:0;color:#888;font-size:10px;">ไม่พบรายละเอียดสินค้า</p>';
+    }
+  }
+
+  set('#receipt-subtotal', money(order.subtotal));
+  set('#receipt-discount', money(order.discount));
+  set('#receipt-total', money(order.total));
+  set('#receipt-payment', order.paymentType === 'cash' ? 'เงินสด 💵' : 'สแกน QR 📱');
+
+  const cashRows = ['#receipt-cash-received-row', '#receipt-cash-change-row'];
+  cashRows.forEach(s => { const el = $(s); if (el) el.style.display = order.paymentType === 'cash' ? 'flex' : 'none'; });
+  if (order.paymentType === 'cash') {
+    set('#receipt-received', money(order.received));
+    set('#receipt-change', money(order.changeDue ?? order.change_due));
+  }
+
+  const mRow = $('#receipt-member-row');
+  if (mRow) {
+    if (order.memberPhone) {
+      mRow.style.display = 'flex';
+      const pts = Math.floor(order.total / 10);
+      const ptEl = mRow.querySelector('span:last-child') || $('#receipt-member-points');
+      if (ptEl) ptEl.textContent = `+${pts} คะแนน (${order.memberPhone})`;
+    } else {
+      mRow.style.display = 'none';
+    }
+  }
+
+  dlg.showModal();
+}
+
+// ── Cash calculator logic ────────────────────────────────────
+function updateCalcChange() {
+  const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
+  const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
+  const total = subtotal - disc;
+  const received = Number($('#calc-received-input')?.value) || 0;
+  const change = received - total;
+  const el = $('#calc-change-amount');
+  if (!el) return;
+  if (received === 0) { el.textContent = money(0); el.style.color = '#27ae60'; }
+  else if (change < 0) { el.textContent = 'ยอดไม่พอ'; el.style.color = '#c0392b'; }
+  else { el.textContent = money(change); el.style.color = '#27ae60'; }
+}
+
+const calcInput = $('#calc-received-input');
+if (calcInput) calcInput.oninput = updateCalcChange;
+
+document.querySelectorAll('.quick-cash-btn').forEach(btn => {
+  btn.onclick = async () => {
+    const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
+    const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
+    const total = subtotal - disc;
+    const val = btn.getAttribute('data-value');
+    const received = val === 'exact' ? Math.ceil(total) : Number(val);
+    if ($('#calc-received-input')) $('#calc-received-input').value = received;
+    updateCalcChange();
+    if (received >= total) {
+      if (checkoutPayload) { checkoutPayload.received = received; checkoutPayload.changeDue = received - total; }
+      $('#checkout-calc-dialog')?.close();
+      await finalizeCheckout();
+    }
+  };
+});
+
+const calcSubmitBtn = $('#calc-submit-btn');
+if (calcSubmitBtn) {
+  calcSubmitBtn.onclick = async () => {
+    const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
+    const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
+    const total = subtotal - disc;
+    const received = Number($('#calc-received-input')?.value) || 0;
+    if (received < total) return alert('ยอดเงินไม่เพียงพอ กรุณารับเงินให้ครบ');
+    if (checkoutPayload) { checkoutPayload.received = received; checkoutPayload.changeDue = received - total; }
+    $('#checkout-calc-dialog')?.close();
+    await finalizeCheckout();
+  };
+}
+
+const calcCloseBtns = document.querySelectorAll('#checkout-calc-dialog .close');
+calcCloseBtns.forEach(b => { b.onclick = () => { $('#checkout-calc-dialog')?.close(); checkoutPayload = null; }; });
+
+// ── Quick brew queue (KDS sidebar) ───────────────────────────
+async function renderQuickBrewQueue() {
+  const container = $('#quick-brew-list');
+  if (!container) return;
+  if (!state.features.kds) { container.innerHTML = '<div class="empty-state">เปิดฟังก์ชันคิวชงในตั้งค่าเพื่อใช้งาน</div>'; return; }
+
+  try {
+    const rows = await api('/api/kds');
+    const pending = rows.filter(x => x.status !== 'completed');
+    if (!pending.length) { container.innerHTML = '<div class="empty-state">ไม่มีรายการค้างชง ✓</div>'; return; }
+    container.replaceChildren(...pending.map(x => buildBrewCard(x)));
+  } catch {
+    container.innerHTML = '<div class="empty-state">ไม่สามารถโหลดคิวชงได้</div>';
+  }
+}
+
+function buildBrewCard(x) {
+  const isCooking = x.status === 'cooking';
+  const card = document.createElement('div');
+  card.className = 'brew-card';
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-weight:700;font-size:13px;margin-bottom:2px;';
+  title.textContent = `${x.name} × ${x.quantity}`;
+
+  const meta = document.createElement('div');
+  meta.style.cssText = 'font-size:10px;color:#999;margin-bottom:4px;';
+  meta.textContent = `บิล ${x.order_id} · ${new Date(x.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`;
+
+  const recipeLink = document.createElement('button');
+  recipeLink.type = 'button';
+  recipeLink.style.cssText = 'background:none;border:none;padding:0;color:var(--accent);font-size:11px;cursor:pointer;font-family:inherit;text-decoration:underline;margin-bottom:6px;';
+  recipeLink.textContent = '📖 ดูสูตรชง';
+  recipeLink.onclick = () => {
+    const prod = state.products.find(p => p.name === x.name);
+    if (prod) showRecipePopover(prod);
+  };
+
+  const actionBtn = document.createElement('button');
+  actionBtn.type = 'button';
+  actionBtn.style.cssText = `border:0;color:#fff;background:${isCooking ? '#27ae60' : '#8c6d58'};border-radius:6px;padding:5px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;width:100%;`;
+  actionBtn.textContent = isCooking ? '✓ เสร็จสิ้น' : '▶ เริ่มชง';
+  actionBtn.onclick = async () => {
+    try {
+      await api(`/api/kds/items/${x.id}/status`, { method: 'PUT', body: JSON.stringify({ status: isCooking ? 'completed' : 'cooking' }) });
+      await renderQuickBrewQueue();
+    } catch (e) { showNotice(e.message, 'error'); }
+  };
+
+  card.append(title, meta, recipeLink, actionBtn);
+  return card;
+}
+
+// ── Reports dialog ────────────────────────────────────────────
+const reportsBtn = $('#reportsBtn');
+if (reportsBtn) {
+  reportsBtn.onclick = async () => {
+    if (!state.features.reports) return;
+    try {
+      const [analytics, transactions] = await Promise.all([
+        api('/api/reports/analytics'),
+        api('/api/reports/transactions')
+      ]);
+
+      const totalSales = transactions.reduce((s, o) => s + o.total, 0);
+      const totalBills = transactions.length;
+      const avgBill = totalBills ? totalSales / totalBills : 0;
+
+      const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+      set('#rep-total-sales', money(totalSales));
+      set('#rep-total-orders', `${totalBills} บิล`);
+      set('#rep-avg-bill', money(avgBill));
+
+      // Category bar chart
+      const catEl = $('#rep-category-sales-list');
+      if (catEl) {
+        catEl.replaceChildren();
+        if (!analytics.categorySales.length) {
+          catEl.innerHTML = '<p style="color:#aaa;font-size:12px;">ยังไม่มีข้อมูล</p>';
+        } else {
+          const max = Math.max(...analytics.categorySales.map(x => x.sales), 1);
+          const catNames = { coffee: '☕ กาแฟ', tea: '🧋 ชาและนม', bakery: '🥐 เบเกอรี่', other: '⭐ อื่นๆ' };
+          analytics.categorySales.forEach(x => {
+            const pct = (x.sales / max) * 100;
+            const item = document.createElement('div');
+            item.style.cssText = 'font-size:12px;margin-bottom:8px;';
+            item.innerHTML = `
+              <div style="display:flex;justify-content:space-between;font-weight:600;margin-bottom:3px;">
+                <span>${catNames[x.category] || x.category}</span>
+                <span>${money(x.sales)}</span>
+              </div>
+              <div style="background:#f1ebe5;border-radius:4px;height:8px;overflow:hidden;">
+                <div style="background:var(--primary);height:100%;width:${pct}%;border-radius:4px;transition:width 0.4s;"></div>
+              </div>`;
+            catEl.append(item);
+          });
+        }
+      }
+
+      // Top sellers
+      const topEl = $('#rep-top-sellers-list');
+      if (topEl) {
+        topEl.replaceChildren();
+        if (!analytics.topSellers.length) {
+          topEl.innerHTML = '<p style="color:#aaa;font-size:12px;">ยังไม่มีข้อมูล</p>';
+        } else {
+          analytics.topSellers.forEach((x, i) => {
+            const item = document.createElement('div');
+            item.style.cssText = 'font-size:12px;display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f9f6f3;';
+            item.innerHTML = `<span>${i + 1}. <b>${x.name}</b> (${x.qty} ชิ้น)</span><span style="font-weight:700;color:var(--primary);">${money(x.revenue)}</span>`;
+            topEl.append(item);
+          });
+        }
+      }
+
+      // Payment methods
+      const pmEl = $('#rep-payment-methods');
+      if (pmEl) {
+        const cashSales = analytics.paymentSales.find(x => x.payment_type === 'cash')?.sales || 0;
+        const qrSales = analytics.paymentSales.find(x => x.payment_type === 'qr')?.sales || 0;
+        pmEl.innerHTML = `
+          <div style="text-align:center;flex:1;">
+            <div style="font-size:11px;color:#888;">💵 เงินสด</div>
+            <div style="font-size:20px;font-weight:700;color:var(--primary);margin-top:4px;">${money(cashSales)}</div>
+          </div>
+          <div style="border-left:1px dashed #dfcec0;"></div>
+          <div style="text-align:center;flex:1;">
+            <div style="font-size:11px;color:#888;">📱 สแกน QR</div>
+            <div style="font-size:20px;font-weight:700;color:var(--primary);margin-top:4px;">${money(qrSales)}</div>
+          </div>`;
+      }
+
+      // Transactions log
+      const txEl = $('#rep-transactions-list');
+      if (txEl) {
+        txEl.replaceChildren();
+        if (!transactions.length) {
+          txEl.innerHTML = '<p style="color:#aaa;font-size:12px;text-align:center;padding:20px 0;">ยังไม่มีรายการบิล</p>';
+        } else {
+          transactions.forEach(tx => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:8px 10px;border:1px solid #f1e7de;border-radius:8px;background:#fff;cursor:pointer;transition:border-color 0.2s;';
+            row.onmouseover = () => row.style.borderColor = 'var(--accent)';
+            row.onmouseout = () => row.style.borderColor = '#f1e7de';
+            const time = new Date(tx.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+            const itemSummary = (tx.items || []).map(x => `${x.name}×${x.quantity}`).join(', ');
+            row.innerHTML = `
+              <div>
+                <b>${tx.id}</b> <small style="color:#aaa;">(${time})</small>
+                <div style="font-size:10.5px;color:#8c7366;margin-top:2px;">${itemSummary || '—'}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <strong style="color:var(--primary);">${money(tx.total)}</strong>
+                <span style="font-size:10px;background:#f1ebe5;padding:2px 6px;border-radius:4px;">${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}</span>
+              </div>`;
+            row.onclick = () => { $('#reports-dialog')?.close(); showReceipt({ ...tx, items: tx.items }); };
+            txEl.append(row);
+          });
+        }
+      }
+
+      $('#reports-dialog')?.showModal();
+    } catch (e) { showNotice(e.message, 'error'); }
+  };
+}
+
+// ── Settings & Admin tabs ─────────────────────────────────────
 document.querySelectorAll('.admin-tab-btn').forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll('.admin-tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.admin-tab-panel').forEach(p => p.classList.remove('active-panel'));
-
     btn.classList.add('active');
-    const tabId = btn.getAttribute('data-tab');
-    $('#' + tabId).classList.add('active-panel');
+    const tabEl = $('#' + btn.getAttribute('data-tab'));
+    if (tabEl) tabEl.classList.add('active-panel');
   };
 });
 
@@ -738,552 +733,552 @@ document.querySelectorAll('.stock-tab-btn').forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll('.stock-tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    state.selectedStockCategory = btn.getAttribute('data-stock-cat');
+    state.selectedStockCategory = btn.getAttribute('data-stock-cat') || 'all';
     renderInventoryList();
   };
 });
 
+// ── Inventory list rendering ──────────────────────────────────
 function renderInventoryList() {
   const container = $('#inventory');
   if (!container) return;
-
-  const stockFilter = state.selectedStockCategory || 'all';
-  const filteredInventory = stockFilter === 'all'
-    ? state.inventory
-    : state.inventory.filter(x => x.category === stockFilter);
+  const cat = state.selectedStockCategory;
+  const items = cat === 'all' ? state.inventory : state.inventory.filter(x => x.category === cat);
 
   container.replaceChildren();
-  if (filteredInventory.length === 0) {
-    container.innerHTML = '<p style="text-align:center; color:#888; padding:10px 0;">ไม่มีรายการวัตถุดิบในหมวดหมู่นี้</p>';
+  if (!items.length) {
+    container.innerHTML = '<p style="text-align:center;color:#888;padding:16px 0;font-size:13px;">ไม่มีรายการในหมวดหมู่นี้</p>';
     return;
   }
-
-  filteredInventory.forEach(x => {
+  items.forEach(x => {
     const row = document.createElement('div');
     row.className = 'stock';
-    
-    const catLabel = x.category === 'ingredient' ? 'วัตถุดิบ' : 'อุปกรณ์';
-    row.append(`${x.name} (${catLabel}): ${x.quantity} ${x.unit}`);
-
-    const adj = document.createElement('button');
-    adj.className = 'primary-btn';
-    adj.style.fontSize = '11px';
-    adj.textContent = 'ปรับสต็อก';
-    adj.onclick = () => openStockAdjustDialog(x);
-    row.append(adj);
+    const catLabel = x.category === 'ingredient' ? '🍏วัตถุดิบ' : '🥤อุปกรณ์';
+    const isLow = x.quantity <= x.low_alert;
+    row.innerHTML = `<span>${x.name} <small style="color:${isLow ? '#c0392b' : '#888'}">(${catLabel}) ${x.quantity} ${x.unit}${isLow ? ' ⚠️ ใกล้หมด' : ''}</small></span>`;
+    const btn = document.createElement('button');
+    btn.textContent = '⊕ ปรับสต็อก';
+    btn.className = 'primary-btn';
+    btn.style.fontSize = '11px';
+    btn.onclick = () => openStockAdjustDialog(x);
+    const editBtn = document.createElement('button');
+    editBtn.textContent = '✏️ แก้ไข';
+    editBtn.style.cssText = 'font-size:11px;';
+    editBtn.onclick = () => editInventoryItem(x);
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = '🗑️';
+    deleteBtn.style.cssText = 'font-size:11px;color:#b42318;';
+    deleteBtn.onclick = () => deleteInventoryItem(x);
+    const actions = document.createElement('span');
+    actions.style.cssText = 'display:flex;gap:4px;align-items:center;';
+    actions.append(btn, editBtn, deleteBtn);
+    row.append(actions);
     container.append(row);
   });
 }
 
-function openStockAdjustDialog(item) {
-  $('#adjust-stock-key').value = item.stock_key;
-  $('#adjust-stock-name').textContent = item.name;
-  $('#adjust-stock-current').textContent = item.quantity;
-  $('#adjust-stock-unit').textContent = item.unit;
-  $('#adjust-amount').value = '';
-  $('#adjust-action').value = 'in';
-  $('#adjust-reason').value = 'stock_in';
-  $('#stock-adjust-dialog').showModal();
+async function editInventoryItem(item) {
+  const name = prompt('ชื่อรายการ', item.name); if (name === null) return;
+  const unit = prompt('หน่วยนับ', item.unit); if (unit === null) return;
+  const quantity = Number(prompt('จำนวนคงเหลือ', item.quantity));
+  const lowAlert = Number(prompt('แจ้งเตือนเมื่อเหลือ', item.low_alert));
+  const category = prompt('ประเภท: ingredient หรือ equipment', item.category);
+  if (!name.trim() || !unit.trim() || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(lowAlert) || lowAlert < 0 || !['ingredient','equipment'].includes(category)) return showNotice('ข้อมูลสต็อกไม่ถูกต้อง', 'error');
+  try { await api(`/api/admin/inventory/${item.stock_key}`, { method:'PUT', body:JSON.stringify({name,unit,quantity,lowAlert,category}) }); showNotice('แก้ไขรายการสต็อกแล้ว'); await load(); await adminLoad(); } catch (e) { showNotice(e.message,'error'); }
 }
 
-$('#adjust-action').onchange = () => {
-  const act = $('#adjust-action').value;
-  $('#adjust-reason').value = act === 'in' ? 'stock_in' : 'wastage';
+async function deleteInventoryItem(item) {
+  if (!confirm(`ลบรายการสต็อก “${item.name}” ?`)) return;
+  try { await api(`/api/admin/inventory/${item.stock_key}`, { method:'DELETE' }); showNotice('ลบรายการสต็อกแล้ว'); await load(); await adminLoad(); } catch (e) { showNotice(e.message,'error'); }
+}
+
+const addInventoryBtn = $('#btn-add-inventory');
+if (addInventoryBtn) addInventoryBtn.onclick = async () => {
+  const stockKey = prompt('รหัสรายการภาษาอังกฤษ เช่น syrup_vanilla'); if (!stockKey) return;
+  const name = prompt('ชื่อรายการ'); if (!name) return;
+  const unit = prompt('หน่วยนับ เช่น มล., กรัม, ชิ้น'); if (!unit) return;
+  const quantity = Number(prompt('จำนวนเริ่มต้น', '0'));
+  const lowAlert = Number(prompt('แจ้งเตือนเมื่อเหลือ', '0'));
+  const category = prompt('ประเภท: ingredient หรือ equipment', 'ingredient');
+  try { await api('/api/admin/inventory', { method:'POST', body:JSON.stringify({stockKey,name,unit,quantity,lowAlert,category}) }); showNotice('เพิ่มรายการสต็อกแล้ว'); await load(); await adminLoad(); } catch (e) { showNotice(e.message,'error'); }
 };
 
-$('#submit-stock-adjust').onclick = async () => {
-  const key = $('#adjust-stock-key').value;
-  const act = $('#adjust-action').value;
-  const amt = Number($('#adjust-amount').value);
-  const reason = $('#adjust-reason').value;
+function openStockAdjustDialog(item) {
+  const el = id => $(id);
+  if (el('#adjust-stock-key')) el('#adjust-stock-key').value = item.stock_key;
+  if (el('#adjust-stock-name')) el('#adjust-stock-name').textContent = item.name;
+  if (el('#adjust-stock-current')) el('#adjust-stock-current').textContent = item.quantity;
+  if (el('#adjust-stock-unit')) el('#adjust-stock-unit').textContent = item.unit;
+  if (el('#adjust-amount')) el('#adjust-amount').value = '';
+  if (el('#adjust-action')) el('#adjust-action').value = 'in';
+  if (el('#adjust-reason')) el('#adjust-reason').value = 'stock_in';
+  $('#stock-adjust-dialog')?.showModal();
+}
 
-  if (isNaN(amt) || amt <= 0) {
-    alert('กรุณากรอกจำนวนให้ถูกต้อง');
-    return;
-  }
+const adjustActionEl = $('#adjust-action');
+if (adjustActionEl) {
+  adjustActionEl.onchange = () => {
+    const act = adjustActionEl.value;
+    const reasonEl = $('#adjust-reason');
+    if (reasonEl) reasonEl.value = act === 'in' ? 'stock_in' : 'wastage';
+  };
+}
 
-  const finalAmount = act === 'in' ? amt : -amt;
+const submitStockBtn = $('#submit-stock-adjust');
+if (submitStockBtn) {
+  submitStockBtn.onclick = async () => {
+    const key = $('#adjust-stock-key')?.value;
+    const act = $('#adjust-action')?.value;
+    const amt = Number($('#adjust-amount')?.value);
+    const reason = $('#adjust-reason')?.value || 'manual';
+    if (!key || isNaN(amt) || amt <= 0) return alert('กรอกจำนวนให้ถูกต้อง');
+    const finalAmt = act === 'in' ? amt : -amt;
+    try {
+      await api(`/api/admin/inventory/${key}/adjust`, { method: 'POST', body: JSON.stringify({ amount: finalAmt, reason }) });
+      $('#stock-adjust-dialog')?.close();
+      showNotice('ปรับสต็อกสำเร็จ!');
+      await load();
+      renderInventoryList();
+    } catch (e) { showNotice(e.message, 'error'); }
+  };
+}
 
-  try {
-    await api('/api/admin/inventory/' + key + '/adjust', {
-      method: 'POST',
-      body: JSON.stringify({ amount: finalAmount, reason })
-    });
-    $('#stock-adjust-dialog').close();
-    note('ปรับปรุงสต็อกสำเร็จ');
-    await adminLoad();
-    await load();
-  } catch (e) {
-    note(e.message, 'error');
-  }
-};
+document.querySelectorAll('#stock-adjust-dialog .close').forEach(b => { b.onclick = () => $('#stock-adjust-dialog')?.close(); });
 
-$('#stock-adjust-dialog').querySelector('.close').onclick = () => {
-  $('#stock-adjust-dialog').close();
-};
+// ── Admin login & reload ──────────────────────────────────────
+const loginBtn = $('#login');
+if (loginBtn) {
+  loginBtn.onclick = async () => {
+    adminPin = $('#pin')?.value || '';
+    try {
+      await adminLoad();
+    } catch (e) {
+      adminPin = '';
+      showNotice(e.message, 'error');
+    }
+  };
+}
 
-function settingRow(label, content) {
+const refreshBtn = $('#refresh');
+if (refreshBtn) refreshBtn.onclick = adminLoad;
+
+const settingsBtn = $('#settingsBtn');
+if (settingsBtn) {
+  settingsBtn.onclick = () => {
+    const tabBtn = document.querySelector('.admin-tab-btn[data-tab="tab-features"]');
+    if (tabBtn) tabBtn.click();
+    $('#settings')?.showModal();
+  };
+}
+
+function settingRow(label, inputEl) {
   const row = document.createElement('div');
   row.className = 'feature';
-  row.append(label, content);
+  const lbl = document.createElement('span');
+  lbl.textContent = label;
+  row.append(lbl, inputEl);
   return row;
 }
 
-// -----------------------------------------
-// UNIFIED PRODUCT EDITOR OVERLAY (HOME SCREEN)
-// -----------------------------------------
-function renderEditRecipeList() {
+// ── Admin load ────────────────────────────────────────────────
+async function adminLoad() {
+  const boot = await api('/api/bootstrap');
+  const settings = await api('/api/admin/settings');
+
+  const authEl = $('#auth');
+  const adminEl = $('#admin');
+  if (authEl) authEl.hidden = true;
+  if (adminEl) adminEl.hidden = false;
+
+  // Update global state from boot
+  state.categories = boot.categories || [];
+  state.inventory = boot.inventory || [];
+  state.channels = boot.channels || [];
+
+  // ① Feature toggles
+  const featuresEl = $('#features');
+  if (featuresEl) {
+    featuresEl.replaceChildren(...(settings.features || []).map(x => {
+      const chk = Object.assign(document.createElement('input'), { type: 'checkbox', checked: !!x.enabled });
+      const featureLabels = { kds: '☕ คิวชง (Brewing Queue)', inventory: '📦 คลังสต็อก', members: '👤 สมาชิก', recipes: '📖 สูตรชง', reports: '📊 รายงาน' };
+      chk.onchange = async () => {
+        try {
+          await api(`/api/admin/settings/${x.feature_key}`, { method: 'PUT', body: JSON.stringify({ enabled: chk.checked }) });
+          await load();
+        } catch (e) { showNotice(e.message, 'error'); }
+      };
+      return settingRow(featureLabels[x.feature_key] || x.feature_key, chk);
+    }));
+  }
+
+  // ② Populate category select dropdowns in product editor
+  const editCatSel = $('#edit-prod-category');
+  if (editCatSel) {
+    editCatSel.replaceChildren(...boot.categories.map(c => new Option(c.name, c.category_key)));
+  }
+
+  // ③ Populate inventory dropdown in recipe builder
+  const recipeStockSel = $('#add-recipe-stock-key');
+  if (recipeStockSel) {
+    recipeStockSel.replaceChildren(...boot.inventory.map(x => new Option(`${x.name} (${x.unit})`, x.stock_key)));
+  }
+
+  // ④ Products list in admin
+  const allProducts = await api('/api/admin/products');
+  const adminProdsEl = $('#admin-products');
+  if (adminProdsEl) {
+    adminProdsEl.replaceChildren();
+    allProducts.forEach(p => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid #f5f0eb;font-size:13px;';
+
+      const info = document.createElement('span');
+      info.innerHTML = `${p.emoji} <b>${p.name}</b> — <span style="color:var(--primary);">${money(p.price)}</span> <small style="color:#aaa;">(${p.category})</small>${p.active ? '' : ' <span style="color:#c0392b;font-size:10px;font-weight:700;">[ปิดขาย]</span>'}`;
+
+      const editBtn = document.createElement('button');
+      editBtn.textContent = '✏️ แก้ไข';
+      editBtn.style.cssText = 'border:1px solid #dfcec0;background:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;font-family:inherit;transition:all 0.15s;';
+      editBtn.onmouseover = () => { editBtn.style.background = 'var(--primary)'; editBtn.style.color = '#fff'; };
+      editBtn.onmouseout = () => { editBtn.style.background = '#fff'; editBtn.style.color = 'var(--text-main)'; };
+      editBtn.onclick = () => openProductEditor(p);
+
+      row.append(info, editBtn);
+      adminProdsEl.append(row);
+    });
+  }
+
+  // ⑤ Categories table
+  renderCategoriesTable();
+
+  // ⑥ GP channels
+  const channelsEl = $('#channels');
+  if (channelsEl) {
+    channelsEl.replaceChildren(...boot.channels.map(ch => {
+      const gpInput = Object.assign(document.createElement('input'), { type: 'number', min: 0, max: 99.99, step: 0.01, value: ch.gp_percent });
+      gpInput.style.cssText = 'width:80px;padding:6px;font-size:12px;';
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'บันทึก';
+      saveBtn.onclick = async () => {
+        try {
+          await api(`/api/admin/channels/${ch.channel_key}`, { method: 'PUT', body: JSON.stringify({ gpPercent: Number(gpInput.value), active: true }) });
+          showNotice('บันทึก GP สำเร็จ');
+          await adminLoad();
+        } catch (e) { showNotice(e.message, 'error'); }
+      };
+      const wrap = document.createElement('span');
+      wrap.style.cssText = 'display:flex;gap:6px;align-items:center;';
+      wrap.append(gpInput, saveBtn);
+      return settingRow(`${ch.name} GP (%)`, wrap);
+    }));
+  }
+
+  // ⑦ Product-centric pricing grid
+  await renderChannelPricingGrid();
+
+  // ⑧ Inventory list
+  renderInventoryList();
+}
+
+function renderCategoriesTable() {
+  const el = $('#categories-table-container');
+  if (!el) return;
+  if (!state.categories.length) {
+    el.innerHTML = '<p style="padding:10px;color:#888;text-align:center;font-size:12px;">ยังไม่มีหมวดหมู่</p>';
+    return;
+  }
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+      <thead>
+        <tr style="background:#fdf6ee;border-bottom:1px solid #eadfd5;color:var(--primary);">
+          <th style="padding:8px;text-align:left;font-weight:700;">รหัส</th>
+          <th style="padding:8px;text-align:left;font-weight:700;">ชื่อหมวดหมู่</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${state.categories.map(c => `
+          <tr style="border-bottom:1px solid #faf6f2;">
+            <td style="padding:8px;font-family:Courier,monospace;font-weight:600;">${c.category_key}</td>
+            <td style="padding:8px;">${c.name}</td><td style="padding:5px;white-space:nowrap;"><button data-edit-category="${c.category_key}">✏️</button> <button data-delete-category="${c.category_key}">🗑️</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+  el.querySelectorAll('[data-edit-category]').forEach(btn => btn.onclick = async () => {
+    const key = btn.getAttribute('data-edit-category'); const item = state.categories.find(x => x.category_key === key); const name = prompt('ชื่อหมวดหมู่', item?.name || ''); if (!name) return;
+    try { await api(`/api/admin/categories/${key}`, {method:'PUT',body:JSON.stringify({name})}); await adminLoad(); await load(); } catch (e) { showNotice(e.message,'error'); }
+  });
+  el.querySelectorAll('[data-delete-category]').forEach(btn => btn.onclick = async () => {
+    const key = btn.getAttribute('data-delete-category'); if (!confirm(`ลบหมวดหมู่ ${key} ?`)) return;
+    try { await api(`/api/admin/categories/${key}`, {method:'DELETE'}); await adminLoad(); await load(); } catch (e) { showNotice(e.message,'error'); }
+  });
+}
+
+// ── Category add ──────────────────────────────────────────────
+const addCatBtn = $('#add-category');
+if (addCatBtn) {
+  addCatBtn.onclick = async () => {
+    const keyEl = $('#new-category-key');
+    const nameEl = $('#new-category-name');
+    try {
+      await api('/api/admin/categories', { method: 'POST', body: JSON.stringify({ key: keyEl?.value, name: nameEl?.value }) });
+      if (keyEl) keyEl.value = '';
+      if (nameEl) nameEl.value = '';
+      showNotice('เพิ่มหมวดหมู่สำเร็จ');
+      await adminLoad();
+      await load();
+    } catch (e) { showNotice(e.message, 'error'); }
+  };
+}
+
+// ── Online pricing grid ───────────────────────────────────────
+async function renderChannelPricingGrid() {
+  const container = $('#channel-pricing-grid');
+  if (!container) return;
+  container.innerHTML = '<p style="color:#888;font-size:12px;text-align:center;padding:10px;">กำลังโหลดราคาออนไลน์...</p>';
+  try {
+    const pricing = await api('/api/pricing');
+    const productPrices = {};
+    pricing.forEach(x => {
+      if (!productPrices[x.product_id]) {
+        productPrices[x.product_id] = { name: x.name, store_price: x.store_price, channels: {} };
+      }
+      productPrices[x.product_id].channels[x.channel_key] = x;
+    });
+
+    container.innerHTML = '';
+    Object.entries(productPrices).forEach(([prodId, p]) => {
+      const card = document.createElement('div');
+      card.style.cssText = 'border:1px solid #f1e7de;border-radius:12px;padding:14px;margin-bottom:12px;background:#faf8f5;';
+      const header = document.createElement('div');
+      header.style.cssText = 'font-weight:700;font-size:13.5px;color:var(--primary);display:flex;justify-content:space-between;margin-bottom:10px;';
+      header.innerHTML = `<span>${p.name}</span><span style="color:var(--text-muted);font-weight:500;">หน้าร้าน ${money(p.store_price)}</span>`;
+
+      const grid = document.createElement('div');
+      grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;';
+
+      state.channels.forEach(ch => {
+        const item = p.channels[ch.channel_key];
+        const suggested = Number(p.store_price / (1 - ch.gp_percent / 100)).toFixed(2);
+        const box = document.createElement('div');
+        box.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
+        box.innerHTML = `<label style="font-size:10.5px;font-weight:600;color:var(--text-muted);">${ch.name} (แนะนำ ฿${suggested})</label>`;
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.step = '0.5';
+        inp.placeholder = `฿${suggested}`;
+        inp.value = item?.sale_price != null ? item.sale_price : '';
+        inp.setAttribute('data-product-id', prodId);
+        inp.setAttribute('data-channel-key', ch.channel_key);
+        inp.style.cssText = 'padding:6px;font-size:12px;border:1px solid #dfcec0;border-radius:6px;outline:none;';
+        box.append(inp);
+        grid.append(box);
+      });
+
+      const saveRow = document.createElement('div');
+      saveRow.style.cssText = 'display:flex;justify-content:flex-end;';
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = '💾 บันทึกราคาออนไลน์';
+      saveBtn.className = 'primary-btn';
+      saveBtn.style.cssText = 'font-size:11px;padding:6px 14px;';
+      saveBtn.onclick = async () => {
+        try {
+          for (const inp of card.querySelectorAll('input[data-product-id]')) {
+            const val = inp.value.trim();
+            if (val !== '') {
+              await api('/api/admin/channel-prices', { method: 'PUT', body: JSON.stringify({ productId: Number(inp.getAttribute('data-product-id')), channelKey: inp.getAttribute('data-channel-key'), salePrice: Number(val) }) });
+            }
+          }
+          showNotice('บันทึกราคาออนไลน์สำเร็จ');
+        } catch (e) { showNotice(e.message, 'error'); }
+      };
+      saveRow.append(saveBtn);
+      card.append(header, grid, saveRow);
+      container.append(card);
+    });
+    if (!container.childElementCount) container.innerHTML = '<p style="color:#aaa;font-size:12px;text-align:center;padding:10px;">ยังไม่มีสินค้า</p>';
+  } catch (e) {
+    container.innerHTML = `<p style="color:#c0392b;font-size:12px;">${e.message}</p>`;
+  }
+}
+
+// ── Product Editor Overlay ────────────────────────────────────
+function renderEditRecipeItems() {
   const container = $('#edit-recipe-items-list');
   if (!container) return;
   container.replaceChildren();
-  
-  if (currentEditRecipeItems.length === 0) {
-    container.innerHTML = '<div style="font-size:12px; color:#888; font-style:italic; padding:6px 0;">ยังไม่มีการผูกสต็อกวัตถุดิบ/อุปกรณ์</div>';
+  if (!currentEditRecipeItems.length) {
+    container.innerHTML = '<p style="color:#aaa;font-size:12px;font-style:italic;padding:4px 0;">ยังไม่ได้ผูกวัตถุดิบ/อุปกรณ์ในสูตรชง</p>';
     return;
   }
-  
   currentEditRecipeItems.forEach((x, idx) => {
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:#faf8f5; border:1px solid #f1e7de; border-radius:6px; padding:6px 10px; font-size:12.5px;';
-    
-    row.innerHTML = `
-      <span>📦 <b>${x.name}</b></span>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <strong style="color:var(--primary);">${x.quantity} ${x.unit}</strong>
-        <button type="button" class="secondary-btn" style="background:#fff0f2; color:#b12323; border:1px solid #f9d5d8; padding:2px 8px; border-radius:4px; font-size:10px; cursor:pointer;" id="del-recipe-idx-${idx}">ลบออก</button>
-      </div>
-    `;
-    
-    row.querySelector(`#del-recipe-idx-${idx}`).onclick = () => {
-      currentEditRecipeItems.splice(idx, 1);
-      renderEditRecipeList();
-    };
-    
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;background:#faf8f5;border:1px solid #f1e7de;border-radius:8px;padding:8px 12px;font-size:12.5px;gap:8px;';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = `📦 ${x.name}`;
+    const meta = document.createElement('div');
+    meta.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    const qtySpan = document.createElement('strong');
+    qtySpan.style.color = 'var(--primary)';
+    qtySpan.textContent = `${x.quantity} ${x.unit}`;
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.textContent = '✕ ลบ';
+    delBtn.style.cssText = 'border:1px solid #f5c6cb;background:#f8d7da;color:#721c24;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;';
+    delBtn.onclick = () => { currentEditRecipeItems.splice(idx, 1); renderEditRecipeItems(); };
+    meta.append(qtySpan, delBtn);
+    row.append(nameSpan, meta);
     container.append(row);
   });
 }
 
-async function editProduct(p) {
-  // Solo Operator UX Optimization:
-  // When clicking edit, close settings panel (bounces/exits to Home screen register)
-  // and display the unified editor dialog modal on top of Home!
-  $('#settings').close();
-  
-  // Set basic info fields
-  $('#edit-prod-id').value = p.id;
-  $('#edit-prod-name').value = p.name;
-  $('#edit-prod-price').value = p.price;
-  $('#edit-prod-category').value = p.category;
-  $('#edit-prod-emoji').value = p.emoji;
-  $('#edit-prod-active').checked = p.active === 1;
+async function openProductEditor(product) {
+  // Close settings → bounce to home register screen, then show editor overlay
+  $('#settings')?.close();
 
-  // Show Delete button for existing products
-  $('#btn-delete-product').style.display = 'inline-block';
-  $('#edit-prod-title').textContent = `แก้ไขสินค้า: ${p.name}`;
+  if (product) {
+    // Edit mode
+    if ($('#edit-prod-id')) $('#edit-prod-id').value = product.id;
+    if ($('#edit-prod-name')) $('#edit-prod-name').value = product.name;
+    if ($('#edit-prod-price')) $('#edit-prod-price').value = product.price;
+    if ($('#edit-prod-emoji')) $('#edit-prod-emoji').value = product.emoji;
+    if ($('#edit-prod-category')) $('#edit-prod-category').value = product.category;
+    if ($('#edit-prod-active')) $('#edit-prod-active').checked = !!product.active;
+    if ($('#edit-prod-title')) $('#edit-prod-title').textContent = `✏️ แก้ไข: ${product.name}`;
+    const delBtn = $('#btn-delete-product');
+    if (delBtn) delBtn.style.display = 'inline-block';
 
-  try {
-    // Fetch recipe items and description
-    const res = await api(`/api/admin/products/${p.id}/recipe`);
-    currentEditRecipeItems = res.items;
-    $('#edit-recipe-description').value = res.description;
-    
-    renderEditRecipeList();
-    
-    // Open editor popover dialog modal
-    $('#product-edit-dialog').showModal();
-  } catch (e) {
-    note(e.message, 'error');
-  }
-}
-
-// Open Editor in "Add New Product" mode
-$('#btn-trigger-add-product').onclick = () => {
-  // Close settings panel (exits back to Home register screen)
-  $('#settings').close();
-  
-  // Clear editor form fields
-  $('#edit-prod-id').value = '';
-  $('#edit-prod-name').value = '';
-  $('#edit-prod-price').value = '';
-  $('#edit-prod-category').value = state.categories[0]?.category_key || 'coffee';
-  $('#edit-prod-emoji').value = '☕';
-  $('#edit-prod-active').checked = true;
-  $('#edit-recipe-description').value = '';
-  currentEditRecipeItems = [];
-  
-  renderEditRecipeList();
-  
-  // Hide Delete button in Add mode
-  $('#btn-delete-product').style.display = 'none';
-  $('#edit-prod-title').textContent = 'เพิ่มสินค้าใหม่';
-  
-  // Open editor popover dialog modal
-  $('#product-edit-dialog').showModal();
-};
-
-// Add recipe item row logic in editor modal
-$('#btn-add-recipe-item').onclick = () => {
-  const stockKey = $('#add-recipe-stock-key').value;
-  const qty = Number($('#add-recipe-quantity').value);
-  
-  if (!stockKey || isNaN(qty) || qty <= 0) {
-    alert('กรุณากรอกจำนวนวัตถุดิบ/อุปกรณ์ที่ใช้ให้ถูกต้อง');
-    return;
-  }
-  
-  const stockItem = state.inventory.find(x => x.stock_key === stockKey);
-  if (!stockItem) return;
-  
-  // Check if item already exists in recipe items list
-  const existing = currentEditRecipeItems.find(x => x.stock_key === stockKey);
-  if (existing) {
-    existing.quantity = qty;
-  } else {
-    currentEditRecipeItems.push({
-      stock_key: stockKey,
-      quantity: qty,
-      name: stockItem.name,
-      unit: stockItem.unit
-    });
-  }
-  
-  $('#add-recipe-quantity').value = '';
-  renderEditRecipeList();
-};
-
-// Save Product & Recipe Action
-$('#btn-save-product-edit').onclick = async () => {
-  const id = $('#edit-prod-id').value;
-  const name = $('#edit-prod-name').value.trim();
-  const price = Number($('#edit-prod-price').value);
-  const category = $('#edit-prod-category').value;
-  const emoji = $('#edit-prod-emoji').value.trim() || '☕';
-  const active = $('#edit-prod-active').checked;
-  const description = $('#edit-recipe-description').value.trim();
-
-  if (!name || isNaN(price) || price < 0 || !category) {
-    alert('กรุณากรอกชื่อและราคาให้ถูกต้อง');
-    return;
-  }
-
-  const payload = { name, price, category, emoji, active };
-
-  try {
-    let productId = Number(id);
-    if (id) {
-      // Edit mode product update
-      await api(`/api/admin/products/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload)
-      });
-      note('บันทึกการแก้ไขสินค้าสำเร็จ');
-    } else {
-      // Add mode product creation
-      const res = await api('/api/admin/products', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-      productId = res.id;
-      note('เพิ่มสินค้าใหม่สำเร็จ');
+    try {
+      const recipe = await api(`/api/admin/products/${product.id}/recipe`);
+      currentEditRecipeItems = recipe.items || [];
+      if ($('#edit-recipe-description')) $('#edit-recipe-description').value = recipe.description || '';
+    } catch {
+      currentEditRecipeItems = [];
+      if ($('#edit-recipe-description')) $('#edit-recipe-description').value = '';
     }
-
-    // Save recipe items & instruction description
-    await api(`/api/admin/products/${productId}/recipe`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        items: currentEditRecipeItems,
-        description
-      })
-    });
-
-    $('#product-edit-dialog').close();
-    await load();
-    await adminLoad();
-  } catch (e) {
-    note(e.message, 'error');
+  } else {
+    // Add mode
+    if ($('#edit-prod-id')) $('#edit-prod-id').value = '';
+    if ($('#edit-prod-name')) $('#edit-prod-name').value = '';
+    if ($('#edit-prod-price')) $('#edit-prod-price').value = '';
+    if ($('#edit-prod-emoji')) $('#edit-prod-emoji').value = '☕';
+    if ($('#edit-prod-category')) $('#edit-prod-category').value = state.categories[0]?.category_key || 'coffee';
+    if ($('#edit-prod-active')) $('#edit-prod-active').checked = true;
+    if ($('#edit-recipe-description')) $('#edit-recipe-description').value = '';
+    if ($('#edit-prod-title')) $('#edit-prod-title').textContent = '➕ เพิ่มสินค้าใหม่';
+    const delBtn = $('#btn-delete-product');
+    if (delBtn) delBtn.style.display = 'none';
+    currentEditRecipeItems = [];
   }
-};
 
-// Delete Product Action
-$('#btn-delete-product').onclick = async () => {
-  const id = $('#edit-prod-id').value;
-  if (!id) return;
-  
-  if (!confirm('🗑️ ยืนยันว่าต้องการลบสินค้านี้ออกจากระบบร้านค้าโดยเด็ดขาด?')) return;
-  
-  try {
-    await api(`/api/admin/products/${id}`, { method: 'DELETE' });
-    note('ลบสินค้าเรียบร้อยแล้ว');
-    $('#product-edit-dialog').close();
-    await load();
-    await adminLoad();
-  } catch (e) {
-    note(e.message, 'error');
-  }
-};
+  renderEditRecipeItems();
+  $('#product-edit-dialog')?.showModal();
+}
 
-$('#product-edit-dialog').querySelector('.close').onclick = () => {
-  $('#product-edit-dialog').close();
-};
+// "Add new product" button
+const triggerAddBtn = $('#btn-trigger-add-product');
+if (triggerAddBtn) triggerAddBtn.onclick = () => openProductEditor(null);
 
-// -----------------------------------------
-// PRODUCT-CENTRIC ONLINE CHANNEL GP PRICING
-// -----------------------------------------
-async function renderChannelPricingGrid() {
-  const pricingContainer = $('#channel-pricing-grid');
-  if (!pricingContainer) return;
-  
-  try {
-    const bootstrap = await api('/api/bootstrap');
-    const pricing = await api('/api/pricing');
-    
-    const productPrices = {};
-    pricing.forEach(x => {
-      if (!productPrices[x.product_id]) {
-        productPrices[x.product_id] = {
-          name: x.name,
-          store_price: x.store_price,
-          channels: {}
-        };
+// Close product editor
+document.querySelectorAll('#product-edit-dialog .close').forEach(b => { b.onclick = () => $('#product-edit-dialog')?.close(); });
+
+// Add recipe item button
+const addRecipeItemBtn = $('#btn-add-recipe-item');
+if (addRecipeItemBtn) {
+  addRecipeItemBtn.onclick = () => {
+    const key = $('#add-recipe-stock-key')?.value;
+    const qty = Number($('#add-recipe-quantity')?.value);
+    if (!key || isNaN(qty) || qty <= 0) return alert('กรอกวัตถุดิบและปริมาณให้ถูกต้อง');
+    const stockItem = state.inventory.find(x => x.stock_key === key);
+    if (!stockItem) return;
+    const existing = currentEditRecipeItems.find(x => x.stock_key === key);
+    if (existing) { existing.quantity = qty; }
+    else { currentEditRecipeItems.push({ stock_key: key, quantity: qty, name: stockItem.name, unit: stockItem.unit }); }
+    if ($('#add-recipe-quantity')) $('#add-recipe-quantity').value = '';
+    renderEditRecipeItems();
+  };
+}
+
+// Save product & recipe button
+const saveProductBtn = $('#btn-save-product-edit');
+if (saveProductBtn) {
+  saveProductBtn.onclick = async () => {
+    const id = $('#edit-prod-id')?.value;
+    const name = ($('#edit-prod-name')?.value || '').trim();
+    const price = Number($('#edit-prod-price')?.value);
+    const category = $('#edit-prod-category')?.value || 'other';
+    const emoji = ($('#edit-prod-emoji')?.value || '☕').slice(0, 8);
+    const active = !!$('#edit-prod-active')?.checked;
+    const description = ($('#edit-recipe-description')?.value || '').trim();
+
+    if (!name || isNaN(price) || price < 0) return alert('กรอกชื่อสินค้าและราคาให้ถูกต้อง');
+
+    try {
+      let productId;
+      if (id) {
+        await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, category, emoji, active }) });
+        productId = Number(id);
+        showNotice('บันทึกข้อมูลสินค้าสำเร็จ!');
+      } else {
+        const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, category, emoji }) });
+        productId = res.id;
+        showNotice('เพิ่มสินค้าใหม่สำเร็จ!');
       }
-      productPrices[x.product_id].channels[x.channel_key] = {
-        channel_name: x.channel_name,
-        gp_percent: x.gp_percent,
-        sale_price: x.sale_price,
-        suggested_price: x.suggested_price
-      };
-    });
-    
-    pricingContainer.innerHTML = '';
-    
-    Object.entries(productPrices).forEach(([prodId, p]) => {
-      const row = document.createElement('div');
-      row.className = 'price-grid-row';
-      row.style.cssText = 'border:1px solid #f1e7de; border-radius:12px; padding:12px; margin-bottom:12px; background:#faf8f5;';
-      
-      let html = `
-        <div style="font-weight:700; font-size:13.5px; margin-bottom:10px; color:var(--primary); display:flex; justify-content:space-between;">
-          <span>☕ ${p.name}</span>
-          <span style="color:#8c5d43;">หน้าร้าน: ${money(p.store_price)}</span>
-        </div>
-        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;" class="channels-grid-inputs">
-      `;
-      
-      bootstrap.channels.forEach(ch => {
-        const item = p.channels[ch.channel_key] || { gp_percent: ch.gp_percent, sale_price: null, suggested_price: p.store_price / (1 - ch.gp_percent / 100) };
-        const val = item.sale_price !== null ? item.sale_price : '';
-        const suggested = Number(p.store_price / (1 - ch.gp_percent / 100)).toFixed(2);
-        
-        html += `
-          <div class="channel-price-input-box" style="display:flex; flex-direction:column; gap:4px; font-size:11.5px;">
-            <label style="font-weight:600; color:var(--text-muted);">${ch.name} (แนะนำ ฿${suggested})</label>
-            <input type="number" step="0.5" class="online-price-field" data-product-id="${prodId}" data-channel-key="${ch.channel_key}" value="${val}" placeholder="฿${suggested}" style="padding:6px; font-size:12px;">
-          </div>
-        `;
+      // Save structured recipe
+      await api(`/api/admin/products/${productId}/recipe`, {
+        method: 'PUT',
+        body: JSON.stringify({ items: currentEditRecipeItems, description })
       });
-      
-      html += `
-        </div>
-        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-          <button type="button" class="primary-btn save-all-channels-btn" style="font-size:11px; padding:6px 12px;">บันทึกราคาออนไลน์</button>
-        </div>
-      `;
-      row.innerHTML = html;
-      
-      row.querySelector('.save-all-channels-btn').onclick = async () => {
-        const inputs = row.querySelectorAll('.online-price-field');
-        try {
-          for (const input of inputs) {
-            const salePrice = Number(input.value);
-            if (input.value.trim() !== '') {
-              await api('/api/admin/channel-prices', {
-                method: 'PUT',
-                body: JSON.stringify({
-                  productId: Number(input.getAttribute('data-product-id')),
-                  channelKey: input.getAttribute('data-channel-key'),
-                  salePrice
-                })
-              });
-            }
-          }
-          note('บันทึกราคาทุกแอพสำเร็จ');
-          await adminLoad();
-        } catch (e) {
-          note(e.message, 'error');
-        }
-      };
-      
-      pricingContainer.append(row);
-    });
-  } catch (e) {
-    pricingContainer.textContent = 'โหลดกริดแก้ไขราคาไม่สำเร็จ';
-  }
-}
 
-// -----------------------------------------
-// CATEGORY MANAGEMENT VISUAL TABLE
-// -----------------------------------------
-function renderCategoriesTable() {
-  const container = $('#categories-table-container');
-  if (!container) return;
-  
-  if (state.categories.length === 0) {
-    container.innerHTML = '<p style="padding:10px; color:#888; text-align:center;">ยังไม่มีหมวดหมู่</p>';
-    return;
-  }
-  
-  let html = `
-    <table style="width:100%; border-collapse:collapse; font-size:12.5px; text-align:left;">
-      <thead>
-        <tr style="background:#fdf6ee; border-bottom:1px solid #f1e7de; color:var(--primary); font-weight:700;">
-          <th style="padding:8px;">รหัสคีย์</th>
-          <th style="padding:8px;">ชื่อภาษาไทย</th>
-        </tr>
-      </thead>
-      <tbody>
-  `;
-  
-  html += state.categories.map(x => `
-    <tr style="border-bottom:1px solid #faf6f2;">
-      <td style="padding:8px; font-weight:600; font-family:Courier, monospace;">${x.category_key}</td>
-      <td style="padding:8px;">${x.name}</td>
-    </tr>
-  `).join('');
-  
-  html += '</tbody></table>';
-  container.innerHTML = html;
-}
-
-async function adminLoad() {
-  const d = await api('/api/admin/settings');
-  $('#auth').hidden = true;
-  $('#admin').hidden = false;
-
-  // 1. Feature toggles
-  const f = $('#features');
-  f.replaceChildren(...d.features.map(x => {
-    const c = Object.assign(document.createElement('input'), { type: 'checkbox', checked: x.enabled });
-    c.onchange = async () => {
-      await api('/api/admin/settings/' + x.feature_key, { method: 'PUT', body: JSON.stringify({ enabled: c.checked }) });
+      $('#product-edit-dialog')?.close();
       await load();
-    };
-    return settingRow(x.feature_key, c);
-  }));
-
-  const b = await api('/api/bootstrap');
-  
-  // Populate category list in dropdowns
-  const catSelect = $('#prod-category');
-  catSelect.replaceChildren();
-  b.categories.forEach(x => catSelect.append(new Option(x.name, x.category_key)));
-  
-  const editCatSelect = $('#edit-prod-category');
-  editCatSelect.replaceChildren();
-  b.categories.forEach(x => editCatSelect.append(new Option(x.name, x.category_key)));
-
-  // Populate inventory items selector dropdown for recipe builder
-  const recipeStockSelect = $('#add-recipe-stock-key');
-  recipeStockSelect.replaceChildren();
-  b.inventory.forEach(x => recipeStockSelect.append(new Option(`${x.name} (${x.unit})`, x.stock_key)));
-
-  // Store lists to global state
-  state.categories = b.categories;
-  state.inventory = b.inventory;
-  state.products = b.products;
-
-  // 2. Admin products management list
-  const adminProducts = await api('/api/admin/products');
-  const prodContainer = $('#admin-products');
-  prodContainer.replaceChildren();
-
-  adminProducts.forEach(p => {
-    const row = document.createElement('div');
-    row.className = 'feature';
-    row.style.borderBottom = '1px solid #f2ebe5';
-    row.style.padding = '8px 0';
-    row.style.fontSize = '13px';
-    row.style.display = 'flex';
-    row.style.justifyContent = 'space-between';
-    row.style.alignItems = 'center';
-
-    const infoSpan = document.createElement('span');
-    const recipe = state.recipesData.find(r => r.id === p.id);
-    const hasRecipe = recipe && (recipe.items?.length > 0 || recipe.description);
-    const rBadge = hasRecipe 
-      ? '<span style="color:#27ae60; font-size:10px; font-weight:700; margin-left:4px;">[มีสูตรชง]</span>' 
-      : '<span style="color:#e67e22; font-size:10px; font-weight:700; margin-left:4px;">[ไม่มีสูตร]</span>';
-      
-    infoSpan.innerHTML = `${p.emoji} <b>${p.name}</b> — ${money(p.price)} <small style="color:#a87c5e">(${p.category})</small> ${rBadge} ${p.active ? '' : '<span style="color:#b12323; font-weight:700; font-size:10px; margin-left:4px;">[ปิดขาย]</span>'}`;
-
-    const editBtn = document.createElement('button');
-    editBtn.textContent = 'แก้ไข';
-    editBtn.className = 'edit-btn';
-    editBtn.style.cssText = 'border:1px solid #dfcec0; background:#fff; border-radius:6px; padding:4px 8px; cursor:pointer; font-size:11px;';
-    editBtn.onclick = () => editProduct(p);
-
-    row.append(infoSpan, editBtn);
-    prodContainer.append(row);
-  });
-
-  // 3. Online Sales Channels GP
-  const ch = $('#channels');
-  ch.replaceChildren(...b.channels.map(x => {
-    const gp = Object.assign(document.createElement('input'), { type: 'number', min: 0, max: 99.99, step: .01, value: x.gp_percent });
-    const save = document.createElement('button');
-    save.textContent = 'บันทึก';
-    save.onclick = async () => {
-      try {
-        await api('/api/admin/channels/' + x.channel_key, { method: 'PUT', body: JSON.stringify({ gpPercent: Number(gp.value), active: true }) });
-        await adminLoad();
-      } catch (e) {
-        note(e.message, 'error');
-      }
-    };
-    const box = document.createElement('span');
-    box.append(gp, save);
-    return settingRow(`${x.name} GP (%)`, box);
-  }));
-
-  // 4. Product Centric Pricing Grid
-  await renderChannelPricingGrid();
-
-  // 5. Visual categories table
-  renderCategoriesTable();
-
-  // 6. Grouped Inventory Stock List
-  renderInventoryList();
+      await adminLoad();
+    } catch (e) { showNotice(e.message, 'error'); }
+  };
 }
 
-// Category Add Actions
-$('#add-category').onclick = async () => {
-  try {
-    await api('/api/admin/categories', { method: 'POST', body: JSON.stringify({ key: $('#new-category-key').value, name: $('#new-category-name').value }) });
-    $('#new-category-key').value = '';
-    $('#new-category-name').value = '';
-    await adminLoad(); await load();
-  } catch (e) { note(e.message, 'error'); }
-};
+// Delete product button
+const deleteProductBtn = $('#btn-delete-product');
+if (deleteProductBtn) {
+  deleteProductBtn.onclick = async () => {
+    const id = $('#edit-prod-id')?.value;
+    if (!id) return;
+    if (!confirm('🗑️ ยืนยันลบสินค้านี้ออกจากร้าน? ไม่สามารถกู้คืนได้')) return;
+    try {
+      await api(`/api/admin/products/${id}`, { method: 'DELETE' });
+      showNotice('ลบสินค้าแล้ว');
+      $('#product-edit-dialog')?.close();
+      await load();
+      await adminLoad();
+    } catch (e) { showNotice(e.message, 'error'); }
+  };
+}
 
-$('#search').oninput = renderProducts;
-$('#discount').oninput = renderCart;
-$('#checkout').onclick = checkout;
-$('#settingsBtn').onclick = () => {
-  const featureTabBtn = document.querySelector('.admin-tab-btn[data-tab="tab-features"]');
-  if (featureTabBtn) featureTabBtn.click();
-  $('#settings').showModal();
-};
+// ── Main event bindings ───────────────────────────────────────
+const searchEl = $('#search');
+if (searchEl) searchEl.oninput = renderProducts;
 
-$('#login').onclick = async () => {
-  adminPin = $('#pin').value;
-  try {
-    await adminLoad();
-  } catch (e) {
-    adminPin = '';
-    note(e.message, 'error');
-  }
-};
+const discountEl = $('#discount');
+if (discountEl) discountEl.oninput = renderCart;
 
-$('#refresh').onclick = adminLoad;
+const checkoutBtn = $('#checkout');
+if (checkoutBtn) checkoutBtn.onclick = checkout;
 
-// Start initialization
-load().catch(e => note(e.message, 'error'));
+$('#modifier-confirm-btn') && ($('#modifier-confirm-btn').onclick = confirmModifier);
+
+let kdsTimer = null;
+function optionText(raw) { try { const x=typeof raw==='string'?JSON.parse(raw):raw; return modifierSummary({temperature:x?.temperature||'iced',sweetness:x?.sweetness??100,milk:x?.milk||'fresh',toppings:x?.toppings||[]}); } catch { return ''; } }
+function kdsWait(createdAt) { const m=Math.max(0,Math.floor((Date.now()-new Date(createdAt).getTime())/60000)); return m ? `${m} นาที` : 'เพิ่งเข้าคิว'; }
+async function renderKdsGrid() { const root=$('#kds-grid'); if(!root) return; try { const rows=await api('/api/kds'); root.replaceChildren(); if(!rows.length) { root.innerHTML='<div class="empty-state">ยังไม่มีคิวชง</div>'; return; } rows.forEach(x=>{ const card=document.createElement('article');card.className=`kds-card ${x.status}`; const queue=document.createElement('strong');queue.className='kds-queue';queue.textContent=`#${String(x.order_id).slice(-5)}`; const name=document.createElement('h3');name.textContent=`${x.name} × ${x.quantity}`; const opts=document.createElement('p');opts.className='kds-options';opts.textContent=optionText(x.options_json); const wait=document.createElement('p');wait.className='kds-wait';wait.textContent=`รอ ${kdsWait(x.created_at)}`; const action=document.createElement('button');action.type='button';const next=x.status==='pending'?'cooking':x.status==='cooking'?'completed':null;action.textContent=x.status==='pending'?'เริ่มชง':x.status==='cooking'?'พร้อมเสิร์ฟ':'พร้อมเสิร์ฟแล้ว';action.disabled=!next;action.onclick=async()=>{try{await api(`/api/kds/items/${x.id}/status`,{method:'PUT',body:JSON.stringify({status:next})});await renderKdsGrid();}catch(e){showNotice(e.message,'error');}};card.append(queue,name,opts,wait,action);root.append(card); }); } catch(e) { root.innerHTML='<div class="empty-state">โหลดคิวชงไม่สำเร็จ</div>'; } }
+function openKdsMode() { if(!state.features.kds) return showNotice('กรุณาเปิดฟังก์ชันคิวชงในการตั้งค่า','error'); $('#kds-dialog')?.showModal(); renderKdsGrid(); clearInterval(kdsTimer); kdsTimer=setInterval(renderKdsGrid,10000); }
+$('#kds-mode-btn') && ($('#kds-mode-btn').onclick=openKdsMode);
+$('#kds-close-btn') && ($('#kds-close-btn').onclick=()=>{ $('#kds-dialog')?.close(); clearInterval(kdsTimer); });
+$('#kds-dialog')?.addEventListener('close',()=>clearInterval(kdsTimer));
+
+let numpadTarget=null, numpadValue='';
+function openNumpad(target,title) { numpadTarget=target;numpadValue=target.value||'';$('#numpad-title').textContent=title;renderNumpad();$('#numpad-dialog')?.showModal(); }
+function renderNumpad() { $('#numpad-value').textContent=numpadValue||'0';const root=$('#numpad-keys');root.replaceChildren();['1','2','3','4','5','6','7','8','9','.','0','←'].forEach(key=>{const b=document.createElement('button');b.type='button';b.textContent=key;b.onclick=()=>{if(key==='←')numpadValue=numpadValue.slice(0,-1);else if(key==='.'&&numpadTarget?.id==='member-phone')return;else if(key==='.'&&numpadValue.includes('.'))return;else numpadValue+=key;renderNumpad();};root.append(b);}); }
+$('#numpad-clear-btn') && ($('#numpad-clear-btn').onclick=()=>{numpadValue='';renderNumpad();});
+$('#numpad-confirm-btn') && ($('#numpad-confirm-btn').onclick=()=>{if(!numpadTarget)return;numpadTarget.value=numpadValue;numpadTarget.dispatchEvent(new Event('input',{bubbles:true}));$('#numpad-dialog')?.close();});
+['discount','member-phone'].forEach(id=>{const el=$('#'+id);if(el){el.readOnly=true;el.inputMode='none';el.onclick=()=>openNumpad(el,id==='discount'?'ส่วนลด (บาท)':'เบอร์โทรสมาชิก');}});
+
+// ── Bootstrap application ─────────────────────────────────────
+load().catch(e => showNotice(e.message, 'error'));

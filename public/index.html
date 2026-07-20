@@ -20,6 +20,7 @@
       </div>
     </div>
     <div class="top-actions">
+      <button class="icon-button" id="kds-mode-btn" type="button">☕<span>Kitchen View</span></button>
       <div class="status"><i></i> พร้อมขาย</div>
       <button class="icon-button" id="settingsBtn" aria-label="ตั้งค่าร้าน">⚙<span>ตั้งค่าร้าน</span></button>
     </div>
@@ -187,6 +188,7 @@
           <div id="tab-inventory" class="admin-tab-panel">
             <section class="settings-section">
               <h3>คลังสต็อกวัตถุดิบและอุปกรณ์</h3>
+              <div style="display:flex;justify-content:flex-end;margin:0 0 8px;"><button type="button" class="primary-btn" id="btn-add-inventory" style="padding:6px 12px;font-size:12px;">+ เพิ่มรายการสต็อก</button></div>
               <div class="stock-tabs-nav">
                 <button type="button" class="stock-tab-btn active" data-stock-cat="all">ทั้งหมด</button>
                 <button type="button" class="stock-tab-btn" data-stock-cat="ingredient">วัตถุดิบ (Raw materials/Liquids)</button>
@@ -391,7 +393,7 @@
         <label style="font-weight: 700; display: block; margin-bottom: 4px; font-size: 11.5px; color: var(--text-muted);">คำอธิบายขั้นตอนการปรุง:</label>
         <div id="recipe-pop-description" style="white-space: pre-wrap; background: #faf8f5; padding: 10px; border-radius: 8px; border: 1px solid #f1e7de; max-height:150px; overflow-y:auto; line-height:1.6; font-size:12.5px;"></div>
       </div>
-      <button type="button" class="primary-btn" onclick="$('#recipe-popover').close()" style="width: 100%; margin-top: 14px; padding: 10px; border-radius:8px;">ปิดหน้างต่างสูตร</button>
+      <button type="button" class="primary-btn" onclick="document.getElementById('recipe-popover').close()" style="width: 100%; margin-top: 14px; padding: 10px; border-radius:8px;">ปิดหน้าต่างสูตร</button>
     </form>
   </dialog>
 
@@ -403,7 +405,7 @@
           <p class="eyebrow">REPORTS & ANALYTICS</p>
           <h2>📊 รายงานและสถิติยอดขาย</h2>
         </div>
-        <button class="close" type="button" onclick="$('#reports-dialog').close()">×</button>
+        <button class="close" type="button" onclick="document.getElementById('reports-dialog').close()">×</button>
       </header>
       <div style="padding: 24px; overflow-y: auto; max-height: 75vh;">
         <!-- Overview Cards -->
@@ -472,18 +474,23 @@
         <div style="display:flex; justify-content:space-between;"><span>ชำระด้วย:</span><span id="receipt-payment">เงินสด</span></div>
         <div style="display:flex; justify-content:space-between;" id="receipt-cash-received-row"><span>รับเงินสดมา:</span><span id="receipt-received">฿0.00</span></div>
         <div style="display:flex; justify-content:space-between;" id="receipt-cash-change-row"><span>เงินทอนลูกค้า:</span><span id="receipt-change" style="font-weight:bold;">฿0.00</span></div>
-        <div style="display:flex; justify-content:space-between; font-style:italic;" id="receipt-member-row"><span>คะแนนสมาชิก:</span><span id="receipt-member-points">+0 คะแนน</span></div>
+        <div style="display:flex; justify-content:space-between; font-style:italic;" id="receipt-member-row"><span>คะแนนสมาชิก:</span><span id="receipt-member-points" style="font-weight:600;">+0 คะแนน</span></div>
       </div>
       <div style="text-align:center; border-top:1px dashed #000; padding-top:10px; font-size:10px;">
         <p style="margin:0;">ขอบคุณที่ใช้บริการ Caffé Aroma ครับ/ค่ะ</p>
       </div>
       <div style="margin-top:20px; display:flex; gap:6px;" class="no-print">
         <button type="button" onclick="window.print()" style="flex:1; padding:8px 0; font-family:Prompt,sans-serif; background:#53372a; color:#fff; border:0; border-radius:6px; cursor:pointer; font-weight:600; font-size:11px;">พิมพ์สลิป</button>
-        <button type="button" onclick="$('#receipt-dialog').close()" style="flex:1; padding:8px 0; font-family:Prompt,sans-serif; background:#f1ebe5; color:#53372a; border:1px solid #cbb8a9; border-radius:6px; cursor:pointer; font-weight:600; font-size:11px;">จบงานบิลใหม่</button>
+        <button type="button" onclick="document.getElementById('receipt-dialog').close()" style="flex:1; padding:8px 0; font-family:Prompt,sans-serif; background:#f1ebe5; color:#53372a; border:1px solid #cbb8a9; border-radius:6px; cursor:pointer; font-weight:600; font-size:11px;">จบงานบิลใหม่</button>
       </div>
     </div>
   </dialog>
 
+  <dialog id="modifier-dialog" class="touch-dialog modifier-dialog">
+    <form method="dialog"><header><div><p class="eyebrow">CUSTOMIZE DRINK</p><h2 id="modifier-title">เลือกตัวเลือก</h2></div><button class="close" value="cancel">×</button></header><div id="modifier-options" class="modifier-options"></div><footer class="touch-dialog-footer"><span id="modifier-price"></span><button type="button" class="primary" id="modifier-confirm-btn">เพิ่มลงตะกร้า</button></footer></form>
+  </dialog>
+  <dialog id="kds-dialog" class="kds-dialog"><div class="kds-shell"><header><div><p class="eyebrow">KITCHEN DISPLAY SYSTEM</p><h2>คิวชงกาแฟ</h2></div><button class="close" id="kds-close-btn" type="button">×</button></header><div id="kds-grid" class="kds-grid"></div></div></dialog>
+  <dialog id="numpad-dialog" class="touch-dialog numpad-dialog"><form method="dialog"><header><h2 id="numpad-title">กรอกข้อมูล</h2><button class="close" value="cancel">×</button></header><output id="numpad-value" class="numpad-value"></output><div id="numpad-keys" class="numpad-keys"></div><footer class="touch-dialog-footer"><button type="button" id="numpad-clear-btn">ล้าง</button><button type="button" class="primary" id="numpad-confirm-btn">ยืนยัน</button></footer></form></dialog>
   <script src="/app.js"></script>
 </body>
 </html>

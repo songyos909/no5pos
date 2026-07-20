@@ -105,9 +105,22 @@ if (db.prepare('SELECT count(*) AS n FROM products').get().n === 0) {
 }
 
 const app = express();
+app.disable('x-powered-by');
+app.use((_, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
 app.use(express.json({ limit: '200kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
-const admin = (req,res,next) => req.get('x-admin-pin') === (process.env.ADMIN_PIN || 'change-me') ? next() : res.status(401).json({error:'ต้องระบุ PIN ผู้ดูแลให้ถูกต้อง'});
+const configuredAdminPin = String(process.env.ADMIN_PIN || '').trim();
+const admin = (req,res,next) => {
+  if (!configuredAdminPin) return fail(res, 'ยังไม่ได้กำหนด ADMIN_PIN บนเซิร์ฟเวอร์', 503);
+  return req.get('x-admin-pin') === configuredAdminPin
+    ? next()
+    : res.status(401).json({error:'ต้องระบุ PIN ผู้ดูแลให้ถูกต้อง'});
+};
 const enabled = key => db.prepare('SELECT enabled FROM feature_settings WHERE feature_key=?').get(key)?.enabled === 1;
 const id = () => `TX-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 const fail = (res, message, status=400) => res.status(status).json({error:message});
@@ -123,7 +136,7 @@ const getRecipeItems = (productId, stockKey) => {
 
 app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), features:Object.fromEntries(db.prepare('SELECT feature_key,enabled FROM feature_settings').all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
 app.get('/api/pricing', (_,res) => res.json(db.prepare(`SELECT p.id product_id,p.name,p.price store_price,c.channel_key,c.name channel_name,c.gp_percent,cp.sale_price,round(p.price/(1-c.gp_percent/100),2) suggested_price FROM products p CROSS JOIN sales_channels c LEFT JOIN channel_prices cp ON cp.product_id=p.id AND cp.channel_key=c.channel_key WHERE p.active=1 AND c.active=1 ORDER BY p.name,c.name`).all()));
-app.get('/api/orders', (req,res) => res.json(db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 100').all()));
+app.get('/api/orders', admin, (req,res) => res.json(db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 100').all()));
 
 app.get('/api/reports/today', (_,res) => res.json(db.prepare("SELECT count(*) orders, coalesce(sum(total),0) sales FROM orders WHERE date(created_at,'localtime')=date('now','localtime')").get()));
 app.get('/api/kds', (_,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); res.json(db.prepare("SELECT oi.id,oi.name,oi.quantity,oi.options_json,oi.status,o.id order_id,o.created_at FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE date(o.created_at,'localtime')=date('now','localtime') ORDER BY o.created_at DESC LIMIT 100").all()); });
@@ -151,6 +164,32 @@ app.get('/api/recipes', (_,res) => {
 
 app.post('/api/orders', (req,res) => {
   const {items, discount=0, paymentType, memberPhone=null, received=0, changeDue=0} = req.body || {};
+  if (!Array.isArray(items) || !items.length || !['cash','qr'].includes(paymentType)) return fail(res,'Invalid payment data');
+  if (!Number.isFinite(Number(discount)) || Number(discount)<0) return fail(res,'Invalid discount');
+  try {
+    const order = db.transaction(() => {
+      const findProduct=db.prepare('SELECT * FROM products WHERE id=?'); let subtotal=0; const lines=[];
+      for (const row of items) {
+        const product=findProduct.get(Number(row.productId)), qty=Number(row.quantity);
+        if(!product || !product.active || !Number.isInteger(qty) || qty<1 || qty>99) throw Error('Invalid order item');
+        const raw=row.options||{};
+        const options={temperature:['hot','iced','blended'].includes(raw.temperature)?raw.temperature:'iced',sweetness:[0,25,50,100].includes(Number(raw.sweetness))?Number(raw.sweetness):100,milk:['fresh','oat','soy'].includes(raw.milk)?raw.milk:'fresh',toppings:Array.isArray(raw.toppings)?raw.toppings.filter(x=>['extraShot','whippedCream'].includes(x)):[]};
+        const unitPrice=Number(product.price)+(options.milk==='oat'?15:options.milk==='soy'?10:0)+(options.toppings.includes('extraShot')?15:0)+(options.toppings.includes('whippedCream')?10:0);
+        subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
+      }
+      const finalDiscount=Math.min(Number(discount),subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
+      for(const {product,qty} of lines) for(const item of getRecipeItems(product.id,product.stock_key)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
+      db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,memberPhone||null,received,changeDue);
+      for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name,unitPrice,qty,JSON.stringify(options)); for(const item of getRecipeItems(product.id,product.stock_key)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
+      if(memberPhone && enabled('members')) db.prepare('UPDATE members SET points=points+? WHERE phone=?').run(Math.floor(total/10),memberPhone);
+      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,memberPhone,received,changeDue,items:lines.map(x=>({name:x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
+    })();
+    res.status(201).json(order);
+  } catch(e) { fail(res,e.message); }
+});
+
+app.post('/api/orders-legacy', (req,res) => {
+  const {items, discount=0, paymentType, memberPhone=null, received=0, changeDue=0} = req.body || {};
   if (!Array.isArray(items) || !items.length || !['cash','qr'].includes(paymentType)) return fail(res,'ข้อมูลการชำระเงินไม่ถูกต้อง');
   if (!Number.isFinite(Number(discount)) || Number(discount)<0) return fail(res,'ส่วนลดไม่ถูกต้อง');
   try {
@@ -166,7 +205,7 @@ app.post('/api/orders', (req,res) => {
         for (const item of recipeItems) {
           const stock = db.prepare('SELECT name, quantity FROM inventory WHERE stock_key=?').get(item.stock_key);
           if (!stock || stock.quantity < item.quantity * qty) {
-            throw Error(`สต็อก ${stock.name} ไม่เพียงพอสำหรับเมนู ${product.name}`);
+            throw Error(`สต็อก ${stock?.name || item.stock_key} ไม่เพียงพอสำหรับเมนู ${product.name}`);
           }
         }
       }
@@ -249,6 +288,18 @@ app.get('/api/reports/transactions', (_, res) => {
 app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare('SELECT feature_key,enabled FROM feature_settings').all()}));
 app.put('/api/admin/settings/:key', admin, (req,res) => { const ok=db.prepare('UPDATE feature_settings SET enabled=? WHERE feature_key=?').run(req.body?.enabled?1:0,req.params.key); return ok.changes?res.json({ok:true}):fail(res,'ไม่พบฟังก์ชัน',404); });
 app.post('/api/admin/inventory/:key/adjust', admin, (req,res) => { const amount=Number(req.body?.amount); const reason=String(req.body?.reason || 'manual adjustment').trim(); if(!Number.isFinite(amount)||amount===0) return fail(res,'จำนวนไม่ถูกต้อง'); const r=db.prepare('UPDATE inventory SET quantity=quantity+? WHERE stock_key=? AND quantity+?>=0').run(amount,req.params.key,amount); if(!r.changes)return fail(res,'สต็อกไม่พอหรือไม่พบรายการ'); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,created_at) VALUES (?,?,?,?)').run(req.params.key,amount,reason,new Date().toISOString()); res.json({ok:true}); });
+app.post('/api/admin/inventory', admin, (req,res) => {
+  const stockKey=String(req.body?.stockKey||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');
+  const name=String(req.body?.name||'').trim(), unit=String(req.body?.unit||'').trim(), quantity=Number(req.body?.quantity), lowAlert=Number(req.body?.lowAlert), category=req.body?.category === 'equipment' ? 'equipment' : 'ingredient';
+  if(!stockKey||!name||!unit||!Number.isFinite(quantity)||quantity<0||!Number.isFinite(lowAlert)||lowAlert<0)return fail(res,'ข้อมูลสต็อกไม่ถูกต้อง');
+  try { db.prepare('INSERT INTO inventory(stock_key,name,unit,quantity,low_alert,category) VALUES (?,?,?,?,?,?)').run(stockKey,name,unit,quantity,lowAlert,category); res.status(201).json({ok:true}); } catch { fail(res,'รหัสสต็อกซ้ำ',409); }
+});
+app.put('/api/admin/inventory/:key', admin, (req,res) => {
+  const name=String(req.body?.name||'').trim(), unit=String(req.body?.unit||'').trim(), quantity=Number(req.body?.quantity), lowAlert=Number(req.body?.lowAlert), category=req.body?.category === 'equipment' ? 'equipment' : 'ingredient';
+  if(!name||!unit||!Number.isFinite(quantity)||quantity<0||!Number.isFinite(lowAlert)||lowAlert<0)return fail(res,'ข้อมูลสต็อกไม่ถูกต้อง');
+  const r=db.prepare('UPDATE inventory SET name=?,unit=?,quantity=?,low_alert=?,category=? WHERE stock_key=?').run(name,unit,quantity,lowAlert,category,req.params.key); return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสต็อก',404);
+});
+app.delete('/api/admin/inventory/:key', admin, (req,res) => { try { const r=db.prepare('DELETE FROM inventory WHERE stock_key=?').run(req.params.key); return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสต็อก',404); } catch { return fail(res,'ลบไม่ได้ เพราะวัตถุดิบยังถูกใช้อยู่ในสูตรชง',409); } });
 app.get('/api/admin/products', admin, (_,res) => { res.json(db.prepare('SELECT * FROM products ORDER BY category,name').all()); });
 
 app.post('/api/admin/products', admin, (req,res) => { 
@@ -303,7 +354,14 @@ app.put('/api/admin/products/:id/recipe', admin, (req, res) => {
 
 app.put('/api/admin/recipes', admin, (req,res) => { const {productId,ingredients,steps}=req.body||{}; if(!productId||typeof ingredients!=='string'||typeof steps!=='string')return fail(res,'ข้อมูลสูตรไม่ถูกต้อง'); db.prepare('INSERT INTO recipes(product_id,ingredients,steps) VALUES (?,?,?) ON CONFLICT(product_id) DO UPDATE SET ingredients=excluded.ingredients,steps=excluded.steps').run(productId,ingredients,steps); res.json({ok:true}); });
 app.post('/api/admin/categories', admin, (req,res) => { const key=String(req.body?.key||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,''); const name=String(req.body?.name||'').trim(); if(!key||!name)return fail(res,'ระบุรหัสและชื่อหมวดสินค้า'); try{db.prepare('INSERT INTO categories(category_key,name) VALUES (?,?)').run(key,name);res.status(201).json({ok:true})}catch{fail(res,'รหัสหมวดซ้ำ',409)} });
+app.put('/api/admin/categories/:key', admin, (req,res) => { const name=String(req.body?.name||'').trim(); if(!name)return fail(res,'ระบุชื่อหมวดสินค้า'); const r=db.prepare('UPDATE categories SET name=? WHERE category_key=?').run(name,req.params.key); return r.changes?res.json({ok:true}):fail(res,'ไม่พบหมวดสินค้า',404); });
+app.delete('/api/admin/categories/:key', admin, (req,res) => { const used=db.prepare('SELECT 1 FROM products WHERE category=? LIMIT 1').get(req.params.key); if(used)return fail(res,'ลบไม่ได้ เพราะยังมีสินค้าในหมวดนี้',409); const r=db.prepare('DELETE FROM categories WHERE category_key=?').run(req.params.key); return r.changes?res.json({ok:true}):fail(res,'ไม่พบหมวดสินค้า',404); });
 app.put('/api/admin/channels/:key', admin, (req,res) => { const gp=Number(req.body?.gpPercent); const active=req.body?.active; if(!Number.isFinite(gp)||gp<0||gp>=100)return fail(res,'GP ต้องอยู่ระหว่าง 0 ถึงน้อยกว่า 100'); const r=db.prepare('UPDATE sales_channels SET gp_percent=?,active=? WHERE channel_key=?').run(gp,active?1:0,req.params.key);return r.changes?res.json({ok:true}):fail(res,'ไม่พบช่องทาง',404); });
+app.post('/api/admin/channels', admin, (req,res) => { const key=String(req.body?.key||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,''), name=String(req.body?.name||'').trim(), gp=Number(req.body?.gpPercent||0); if(!key||!name||!Number.isFinite(gp)||gp<0||gp>=100)return fail(res,'ข้อมูลช่องทางไม่ถูกต้อง'); try{db.prepare('INSERT INTO sales_channels(channel_key,name,gp_percent,active) VALUES (?,?,?,1)').run(key,name,gp);res.status(201).json({ok:true})}catch{fail(res,'รหัสช่องทางซ้ำ',409)} });
+app.delete('/api/admin/channels/:key', admin, (req,res) => { const r=db.prepare('DELETE FROM sales_channels WHERE channel_key=?').run(req.params.key); return r.changes?res.json({ok:true}):fail(res,'ไม่พบช่องทาง',404); });
+app.get('/api/admin/members', admin, (_,res) => res.json(db.prepare('SELECT phone,name,points FROM members ORDER BY name').all()));
+app.put('/api/admin/members/:phone', admin, (req,res) => { const name=String(req.body?.name||'').trim(), points=Number(req.body?.points); if(!name||!Number.isInteger(points)||points<0)return fail(res,'ข้อมูลสมาชิกไม่ถูกต้อง'); const r=db.prepare('UPDATE members SET name=?,points=? WHERE phone=?').run(name,points,req.params.phone); return r.changes?res.json({ok:true}):fail(res,'ไม่พบสมาชิก',404); });
+app.delete('/api/admin/members/:phone', admin, (req,res) => { const r=db.prepare('DELETE FROM members WHERE phone=?').run(req.params.phone); return r.changes?res.json({ok:true}):fail(res,'ไม่พบสมาชิก',404); });
 app.put('/api/admin/channel-prices', admin, (req,res) => { const productId=Number(req.body?.productId), channelKey=String(req.body?.channelKey||''), price=Number(req.body?.salePrice);if(!Number.isInteger(productId)||!channelKey||!Number.isFinite(price)||price<0)return fail(res,'ข้อมูลราคาไม่ถูกต้อง');db.prepare('INSERT INTO channel_prices(product_id,channel_key,sale_price) VALUES (?,?,?) ON CONFLICT(product_id,channel_key) DO UPDATE SET sale_price=excluded.sale_price').run(productId,channelKey,price);res.json({ok:true}); });
 app.use((err,_,res,__) => { console.error(err); fail(res,'เกิดข้อผิดพลาดภายในระบบ',500); });
 app.listen(process.env.PORT || 3000, () => console.log(`POS ready on http://localhost:${process.env.PORT || 3000}`));
