@@ -36,6 +36,7 @@ function showNotice(msg, type = 'success') {
 }
 
 async function api(url, opts = {}) {
+  if (window.useFirebaseStore) return window.firebaseApi(url, opts);
   const headers = { 'Content-Type': 'application/json' };
   if (adminPin) headers['x-admin-pin'] = adminPin;
   const res = await fetch(url, { headers, ...opts });

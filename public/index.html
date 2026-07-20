@@ -522,6 +522,11 @@
   </dialog>
   <dialog id="kds-dialog" class="kds-dialog"><div class="kds-shell"><header><div><p class="eyebrow">KITCHEN DISPLAY SYSTEM</p><h2>คิวชงกาแฟ</h2></div><button class="close" id="kds-close-btn" type="button">×</button></header><div id="kds-grid" class="kds-grid"></div></div></dialog>
   <dialog id="numpad-dialog" class="touch-dialog numpad-dialog"><form method="dialog"><header><h2 id="numpad-title">กรอกข้อมูล</h2><button class="close" value="cancel">×</button></header><output id="numpad-value" class="numpad-value"></output><div id="numpad-keys" class="numpad-keys"></div><footer class="touch-dialog-footer"><button type="button" id="numpad-clear-btn">ล้าง</button><button type="button" class="primary" id="numpad-confirm-btn">ยืนยัน</button></footer></form></dialog>
+  <dialog id="firebase-login-dialog" class="touch-dialog"><form method="dialog"><header><div><p class="eyebrow">NO.5 POS</p><h2>เข้าสู่ระบบร้าน</h2></div></header><div class="firebase-login-form"><label>อีเมล<input id="firebase-email" type="email" value="songyos909@gmail.com" autocomplete="username"></label><label>รหัสผ่าน Firebase<input id="firebase-password" type="password" autocomplete="current-password"></label><p id="firebase-login-error"></p></div><footer class="touch-dialog-footer"><span></span><button type="button" class="primary" id="firebase-login-btn">เข้าสู่ระบบ</button></footer></form></dialog>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="/firebase-client.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
