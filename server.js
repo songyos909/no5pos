@@ -74,6 +74,16 @@ try {
   db.exec("ALTER TABLE inventory ADD COLUMN category TEXT NOT NULL DEFAULT 'ingredient'");
 }
 
+try {
+  db.prepare("SELECT cost_per_unit FROM inventory LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE inventory ADD COLUMN cost_per_unit REAL NOT NULL DEFAULT 0");
+}
+try { db.prepare("SELECT purchase_quantity FROM inventory LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE inventory ADD COLUMN purchase_quantity REAL NOT NULL DEFAULT 0; ALTER TABLE inventory ADD COLUMN purchase_total REAL NOT NULL DEFAULT 0"); }
+try { db.prepare("SELECT target_margin FROM products LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE products ADD COLUMN target_margin REAL NOT NULL DEFAULT 0.65"); }
+
 // Ensure database seeded items use either 'ingredient' or 'equipment'
 db.exec(`
   UPDATE inventory SET category = 'ingredient' WHERE category IN ('raw', 'liquid', 'bakery');
@@ -82,6 +92,11 @@ db.exec(`
 
 // Seed default inventory items
 const insertInv = db.prepare("INSERT OR IGNORE INTO inventory (stock_key, name, unit, quantity, low_alert, category) VALUES (?, ?, ?, ?, ?, ?)");
+insertInv.run('condensed_milk', 'Sweetened condensed milk', 'ml', 5000, 800, 'ingredient');
+insertInv.run('evaporated_milk', 'Evaporated milk', 'ml', 5000, 800, 'ingredient');
+insertInv.run('cocoa_powder', 'Cocoa powder', 'g', 2000, 300, 'ingredient');
+insertInv.run('caramel_syrup', 'Caramel syrup', 'ml', 1500, 250, 'ingredient');
+insertInv.run('ice', 'Ice', 'g', 20000, 3000, 'ingredient');
 insertInv.run('coffee_beans', 'เมล็ดกาแฟ', 'กรัม', 5000, 1000, 'ingredient');
 insertInv.run('milk', 'นมสด', 'มล.', 10000, 2000, 'ingredient');
 insertInv.run('tea_leaves', 'ใบชา', 'กรัม', 3000, 500, 'ingredient');
@@ -89,6 +104,9 @@ insertInv.run('croissant', 'ครัวซองต์', 'ชิ้น', 30, 10
 insertInv.run('cup_hot', 'แก้วร้อน 8oz', 'ใบ', 500, 100, 'equipment');
 insertInv.run('cup_cold', 'แก้วเย็น 16oz', 'ใบ', 1000, 200, 'equipment');
 insertInv.run('straw', 'หลอดพลาสติก', 'เส้น', 1500, 300, 'equipment');
+
+const setUnitCost = db.prepare('UPDATE inventory SET cost_per_unit=? WHERE stock_key=?');
+[[0.65,'coffee_beans'],[0.065,'milk'],[0.0737,'condensed_milk'],[0.0543,'evaporated_milk'],[0.22,'cocoa_powder'],[0.28,'tea_leaves'],[0.4072,'caramel_syrup'],[0.00175,'ice']].forEach(x => setUnitCost.run(...x));
 
 if (db.prepare('SELECT count(*) AS n FROM categories').get().n === 0) {
   [['coffee','กาแฟ'],['tea','ชาและนม'],['bakery','เบเกอรี่'],['other','อื่น ๆ']].forEach(x => db.prepare('INSERT INTO categories(category_key,name) VALUES (?,?)').run(...x));
@@ -105,6 +123,19 @@ if (db.prepare('SELECT count(*) AS n FROM products').get().n === 0) {
 }
 
 const app = express();
+// Starter recipes from the supplied 16 oz menu sheet. They remain editable in Product & Recipe settings.
+if (db.prepare('SELECT count(*) AS n FROM recipe_items').get().n === 0) {
+  const productIds=db.prepare('SELECT id FROM products ORDER BY id LIMIT 5').all().map(x=>x.id);
+  const recipeLines=[
+    [['coffee_beans',20]],
+    [['coffee_beans',20],['condensed_milk',30],['evaporated_milk',20],['milk',40],['ice',180]],
+    [['coffee_beans',20],['ice',180]],
+    [['coffee_beans',20],['condensed_milk',20],['milk',140],['ice',180]],
+    [['coffee_beans',20],['condensed_milk',20],['milk',120],['ice',180]]
+  ];
+  const add=db.prepare('INSERT OR IGNORE INTO recipe_items(product_id,stock_key,quantity) VALUES (?,?,?)');
+  productIds.forEach((productId,index)=>(recipeLines[index]||[]).forEach(([stockKey,quantity])=>add.run(productId,stockKey,quantity)));
+}
 app.disable('x-powered-by');
 app.use((_, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -136,6 +167,18 @@ const getRecipeItems = (productId, stockKey) => {
 
 app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), features:Object.fromEntries(db.prepare('SELECT feature_key,enabled FROM feature_settings').all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
 app.get('/api/pricing', (_,res) => res.json(db.prepare(`SELECT p.id product_id,p.name,p.price store_price,c.channel_key,c.name channel_name,c.gp_percent,cp.sale_price,round(p.price/(1-c.gp_percent/100),2) suggested_price FROM products p CROSS JOIN sales_channels c LEFT JOIN channel_prices cp ON cp.product_id=p.id AND cp.channel_key=c.channel_key WHERE p.active=1 AND c.active=1 ORDER BY p.name,c.name`).all()));
+app.get('/api/costing', (_,res) => {
+  const products=db.prepare('SELECT id,name,price,category,target_margin FROM products WHERE active=1 ORDER BY category,name').all();
+  const channels=db.prepare('SELECT channel_key,name,gp_percent FROM sales_channels WHERE active=1 ORDER BY name').all();
+  const recipe=db.prepare('SELECT ri.quantity,i.stock_key,i.name,i.unit,i.cost_per_unit FROM recipe_items ri JOIN inventory i ON i.stock_key=ri.stock_key WHERE ri.product_id=?');
+  res.json(products.map(product => {
+    const ingredients=recipe.all(product.id).map(x=>({...x,line_cost:Number((x.quantity*x.cost_per_unit).toFixed(2))}));
+    const cost=ingredients.reduce((sum,x)=>sum+x.line_cost,0);
+    const targetMargin=Math.min(.95,Math.max(0,Number(product.target_margin ?? .65)));
+    const recommendedStore=cost ? Number((cost/(1-targetMargin)).toFixed(2)) : 0;
+    return {product_id:product.id,name:product.name,store_price:product.price,target_margin:targetMargin,cost:Number(cost.toFixed(2)),recommended_store_price:recommendedStore,gross_profit:Number((product.price-cost).toFixed(2)),food_cost_percent:product.price?Number((cost/product.price*100).toFixed(1)):0,ingredients,online:channels.map(c=>({channel_key:c.channel_key,name:c.name,gp_percent:c.gp_percent,suggested_price:Number((recommendedStore/(1-c.gp_percent/100)).toFixed(2))}))};
+  }));
+});
 app.get('/api/orders', admin, (req,res) => res.json(db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 100').all()));
 
 app.get('/api/reports/today', (_,res) => res.json(db.prepare("SELECT count(*) orders, coalesce(sum(total),0) sales FROM orders WHERE date(created_at,'localtime')=date('now','localtime')").get()));
@@ -286,6 +329,17 @@ app.get('/api/reports/transactions', (_, res) => {
 });
 
 app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare('SELECT feature_key,enabled FROM feature_settings').all()}));
+app.post('/api/admin/cost-inventory', admin, (req,res) => {
+  const stockKey=String(req.body?.stockKey||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');
+  const name=String(req.body?.name||'').trim(),unit=String(req.body?.unit||'').trim(),quantity=Number(req.body?.quantity),lowAlert=Number(req.body?.lowAlert),purchaseQuantity=Number(req.body?.purchaseQuantity),purchaseTotal=Number(req.body?.purchaseTotal),category=req.body?.category==='equipment'?'equipment':'ingredient';
+  if(!stockKey||!name||!unit||![quantity,lowAlert,purchaseQuantity,purchaseTotal].every(Number.isFinite)||quantity<0||lowAlert<0||purchaseQuantity<=0||purchaseTotal<0)return fail(res,'ข้อมูลต้นทุนไม่ถูกต้อง');
+  try { db.prepare('INSERT INTO inventory(stock_key,name,unit,quantity,low_alert,category,purchase_quantity,purchase_total,cost_per_unit) VALUES (?,?,?,?,?,?,?,?,?)').run(stockKey,name,unit,quantity,lowAlert,category,purchaseQuantity,purchaseTotal,purchaseTotal/purchaseQuantity);res.status(201).json({ok:true}); } catch { fail(res,'รหัสวัตถุดิบซ้ำ',409); }
+});
+app.put('/api/admin/cost-inventory/:key', admin, (req,res) => {
+  const name=String(req.body?.name||'').trim(),unit=String(req.body?.unit||'').trim(),quantity=Number(req.body?.quantity),lowAlert=Number(req.body?.lowAlert),purchaseQuantity=Number(req.body?.purchaseQuantity),purchaseTotal=Number(req.body?.purchaseTotal),category=req.body?.category==='equipment'?'equipment':'ingredient';
+  if(!name||!unit||![quantity,lowAlert,purchaseQuantity,purchaseTotal].every(Number.isFinite)||quantity<0||lowAlert<0||purchaseQuantity<=0||purchaseTotal<0)return fail(res,'ข้อมูลต้นทุนไม่ถูกต้อง');
+  const r=db.prepare('UPDATE inventory SET name=?,unit=?,quantity=?,low_alert=?,category=?,purchase_quantity=?,purchase_total=?,cost_per_unit=? WHERE stock_key=?').run(name,unit,quantity,lowAlert,category,purchaseQuantity,purchaseTotal,purchaseTotal/purchaseQuantity,req.params.key);return r.changes?res.json({ok:true}):fail(res,'ไม่พบวัตถุดิบ',404);
+});
 app.put('/api/admin/settings/:key', admin, (req,res) => { const ok=db.prepare('UPDATE feature_settings SET enabled=? WHERE feature_key=?').run(req.body?.enabled?1:0,req.params.key); return ok.changes?res.json({ok:true}):fail(res,'ไม่พบฟังก์ชัน',404); });
 app.post('/api/admin/inventory/:key/adjust', admin, (req,res) => { const amount=Number(req.body?.amount); const reason=String(req.body?.reason || 'manual adjustment').trim(); if(!Number.isFinite(amount)||amount===0) return fail(res,'จำนวนไม่ถูกต้อง'); const r=db.prepare('UPDATE inventory SET quantity=quantity+? WHERE stock_key=? AND quantity+?>=0').run(amount,req.params.key,amount); if(!r.changes)return fail(res,'สต็อกไม่พอหรือไม่พบรายการ'); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,created_at) VALUES (?,?,?,?)').run(req.params.key,amount,reason,new Date().toISOString()); res.json({ok:true}); });
 app.post('/api/admin/inventory', admin, (req,res) => {
@@ -301,6 +355,11 @@ app.put('/api/admin/inventory/:key', admin, (req,res) => {
 });
 app.delete('/api/admin/inventory/:key', admin, (req,res) => { try { const r=db.prepare('DELETE FROM inventory WHERE stock_key=?').run(req.params.key); return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสต็อก',404); } catch { return fail(res,'ลบไม่ได้ เพราะวัตถุดิบยังถูกใช้อยู่ในสูตรชง',409); } });
 app.get('/api/admin/products', admin, (_,res) => { res.json(db.prepare('SELECT * FROM products ORDER BY category,name').all()); });
+app.put('/api/admin/products/:id/costing', admin, (req,res) => {
+  const price=Number(req.body?.price), targetMargin=Number(req.body?.targetMargin);
+  if(!Number.isFinite(price)||price<0||!Number.isFinite(targetMargin)||targetMargin<0||targetMargin>=.95)return fail(res,'ราคา หรือเป้าหมายกำไรไม่ถูกต้อง');
+  const r=db.prepare('UPDATE products SET price=?,target_margin=? WHERE id=?').run(price,targetMargin,req.params.id);return r.changes?res.json({ok:true}):fail(res,'ไม่พบเมนู',404);
+});
 
 app.post('/api/admin/products', admin, (req,res) => { 
   const {name,price,category,emoji='☕',stockKey=null}=req.body||{}; 
@@ -324,7 +383,7 @@ app.delete('/api/admin/products/:id', admin, (req,res) => {
 // Structured recipe endpoints
 app.get('/api/admin/products/:id/recipe', admin, (req, res) => {
   const productId = Number(req.params.id);
-  const items = db.prepare('SELECT ri.stock_key, ri.quantity, i.name, i.unit FROM recipe_items ri JOIN inventory i ON i.stock_key=ri.stock_key WHERE ri.product_id=?').all(productId);
+  const items = db.prepare('SELECT ri.stock_key, ri.quantity, i.name, i.unit, i.cost_per_unit FROM recipe_items ri JOIN inventory i ON i.stock_key=ri.stock_key WHERE ri.product_id=?').all(productId);
   const recipe = db.prepare('SELECT description FROM recipes WHERE product_id=?').get(productId);
   res.json({ items, description: recipe ? recipe.description : '' });
 });

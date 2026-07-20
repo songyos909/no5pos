@@ -138,6 +138,15 @@ body {
   margin-left: 8px;
 }
 
+/* One compact navigation menu replaces the old feature-pill strip. */
+#kds-mode-btn, #settingsBtn, .modules-strip { display: none !important; }
+.admin-tabs-nav { display: none !important; }
+.top-menu { position: relative; }
+.top-menu-list { display:none; position:absolute; right:0; top:calc(100% + 10px); z-index:300; min-width:230px; padding:8px; border:1px solid #eadfd5; border-radius:14px; background:#fff; box-shadow:var(--shadow-lg); }
+.top-menu.open .top-menu-list { display:grid; gap:3px; }
+.top-menu-list button { min-height:46px; width:100%; padding:8px 12px; border:0; border-radius:9px; background:transparent; text-align:left; color:var(--primary); font:600 14px Prompt,sans-serif; cursor:pointer; }
+.top-menu-list button:hover { background:#f8eee4; }
+
 /* Modules Strip Navigation */
 .modules-strip {
   max-width: 1360px;
@@ -1111,6 +1120,30 @@ dialog form > header h2 {
   background: var(--panel-border);
   border-radius: 4px;
 }
+
+.cost-card { border:1px solid #eadfd5; border-radius:12px; padding:14px; background:#fffdfb; }
+.cost-card h4 { margin:0 0 10px; color:var(--primary); font-size:15px; }
+.cost-metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+.cost-metrics div { background:#f8f1eb; border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:2px; }
+.cost-metrics small { color:var(--text-muted); font-size:10px; }.cost-metrics b { color:var(--primary); font-size:13px; }
+.cost-formula,.cost-online { margin:10px 0 0; font-size:11px; line-height:1.6; color:var(--text-muted); }
+.cost-online { color:#8a5c38; font-weight:600; }
+.cost-input-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:18px 0; }
+.cost-input-grid label { display:grid; gap:5px; font-size:12px; font-weight:600; color:var(--text-muted); }
+.cost-input-grid input,.cost-input-grid select { min-height:42px; padding:8px; border:1px solid #dfcec0; border-radius:8px; font:inherit; color:var(--text-main); }
+.cost-unit-preview { display:flex; flex-direction:column; justify-content:center; padding:9px 12px; border-radius:8px; background:#f8eee4; color:var(--primary); }
+.cost-unit-preview small { font-size:11px; }.cost-unit-preview b { font-size:18px; }
+.cost-inventory-list { margin-top:14px; border:1px solid #eadfd5; border-radius:10px; max-height:280px; overflow:auto; background:#fff; }
+.cost-inventory-list h4 { margin:0; padding:10px 12px; position:sticky; top:0; background:#f8eee4; color:var(--primary); font-size:13px; }
+.cost-inventory-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-top:1px solid #f3ebe5; }
+.cost-inventory-row div { display:grid; gap:2px; }.cost-inventory-row small { color:var(--text-muted); font-size:11px; }
+.cost-inventory-row button { min-height:36px; border:1px solid #d8c4b5; border-radius:8px; background:#fff; color:var(--primary); font:600 12px Prompt,sans-serif; padding:6px 10px; cursor:pointer; }
+.recipe-cost-summary { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:10px 12px; margin:8px 0 12px; background:#f8eee4; border:1px solid #eadfd5; border-radius:8px; color:var(--primary); font-size:12px; }
+.recipe-cost-summary span { color:var(--text-muted); }
+.recipe-price-apply { min-height:32px; border:0; border-radius:7px; padding:5px 9px; background:var(--primary); color:#fff; font:600 11px Prompt,sans-serif; cursor:pointer; }
+/* The Cost Input list is the single source of stock data; hide legacy duplicate controls. */
+#inventory, .stock-tabs-nav, #btn-add-inventory { display:none !important; }
+@media (max-width:560px) { .cost-input-grid { grid-template-columns:1fr; }.cost-metrics { grid-template-columns:repeat(2,1fr); } }
 
 /* Modals overlays styling overrides */
 #checkout-calc-dialog, #stock-adjust-dialog, #recipe-popover {

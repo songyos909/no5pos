@@ -20,6 +20,10 @@
       </div>
     </div>
     <div class="top-actions">
+      <div class="top-menu">
+        <button class="icon-button" id="top-menu-toggle" type="button" aria-expanded="false">☰<span>เมนู</span></button>
+        <div id="top-menu-list" class="top-menu-list" role="menu"></div>
+      </div>
       <button class="icon-button" id="kds-mode-btn" type="button">☕<span>Kitchen View</span></button>
       <div class="status"><i></i> พร้อมขาย</div>
       <button class="icon-button" id="settingsBtn" aria-label="ตั้งค่าร้าน">⚙<span>ตั้งค่าร้าน</span></button>
@@ -194,6 +198,8 @@
                 <button type="button" class="stock-tab-btn" data-stock-cat="ingredient">วัตถุดิบ (Raw materials/Liquids)</button>
                 <button type="button" class="stock-tab-btn" data-stock-cat="equipment">อุปกรณ์ (Packaging/Cups/Napkins)</button>
               </div>
+              <button type="button" id="btn-cost-inventory" class="primary-btn" style="margin-top:12px;">เพิ่มวัตถุดิบ / บรรจุภัณฑ์พร้อมราคาซื้อ</button>
+              <div id="cost-inventory-list" class="cost-inventory-list"></div>
               <div id="inventory" class="setting-list" style="margin-top:12px;"></div>
             </section>
           </div>
@@ -212,9 +218,31 @@
                 <!-- Product centric prices row -->
               </div>
             </section>
+            <section class="settings-section">
+              <h3>ต้นทุนต่อแก้วและกำไรขั้นต้น</h3>
+              <p class="hint">คำนวณจากปริมาณวัตถุดิบในสูตร × ราคาต่อหน่วย สามารถแก้ไขต้นทุนและสูตรได้จากแท็บสต็อก/เมนู</p>
+              <div id="costing-grid" class="channel-pricing-grid"></div>
+            </section>
           </div>
         </div>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="cost-inventory-dialog" class="touch-dialog">
+    <form method="dialog"><header><div><p class="eyebrow">COST INPUT</p><h2>เพิ่มวัตถุดิบ / บรรจุภัณฑ์</h2></div><button class="close" value="cancel">×</button></header>
+      <div class="cost-input-grid">
+        <label>หมวด<select id="cost-inv-category"><option value="ingredient">วัตถุดิบ</option><option value="equipment">บรรจุภัณฑ์ / อุปกรณ์</option></select></label>
+        <label>รหัสรายการ<input id="cost-inv-key" placeholder="coffee_beans"></label>
+        <label>ชื่อรายการ<input id="cost-inv-name" placeholder="เมล็ดกาแฟ"></label>
+        <label>หน่วยนับ<input id="cost-inv-unit" placeholder="กรัม / ml / ใบ"></label>
+        <label>จำนวนซื้อรวม<input id="cost-inv-purchase-qty" type="number" min="0.01" step="0.01"></label>
+        <label>ราคาซื้อรวม (บาท)<input id="cost-inv-purchase-total" type="number" min="0" step="0.01"></label>
+        <div class="cost-unit-preview"><small>ต้นทุนต่อหน่วย</small><b id="cost-inv-unit-price">฿0.0000</b></div>
+        <label>คงเหลือเริ่มต้น<input id="cost-inv-quantity" type="number" min="0" step="0.01" value="0"></label>
+        <label>แจ้งเตือนเมื่อเหลือ<input id="cost-inv-low" type="number" min="0" step="0.01" value="0"></label>
+      </div>
+      <footer class="touch-dialog-footer"><span></span><button type="button" class="primary" id="cost-inv-save">บันทึกวัตถุดิบ</button></footer>
     </form>
   </dialog>
 
@@ -240,6 +268,8 @@
           <div>
             <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">ราคาหน้าร้าน (บาท)</label>
             <input id="edit-prod-price" type="number" min="0" step="0.5" placeholder="ราคา" style="width:100%;">
+            <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin:8px 0 4px;">เป้ากำไรขั้นต้น (%)</label>
+            <input id="edit-prod-margin" type="number" min="1" max="94" step="1" value="65" style="width:100%;">
           </div>
         </div>
         
@@ -270,6 +300,7 @@
           <div id="edit-recipe-items-list" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;">
             <!-- Current recipe items listed here -->
           </div>
+          <div id="edit-recipe-cost-summary" class="recipe-cost-summary"></div>
           
           <!-- Add Recipe Item Row -->
           <div style="display:grid; grid-template-columns: 1.5fr 1fr auto; gap:6px; background:#faf8f5; padding:8px; border-radius:8px; border:1px solid #f1e7de; align-items:center;">

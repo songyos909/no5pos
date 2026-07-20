@@ -86,6 +86,7 @@ async function load() {
 
 // ── Feature / layout state ────────────────────────────────────
 function applyFeatureState() {
+  renderTopMenu();
   // Modules strip
   let strip = $('#active-modules');
   if (!strip) {
@@ -126,14 +127,37 @@ function applyFeatureState() {
   if (memberSec) memberSec.style.display = state.features.members ? 'block' : 'none';
 }
 
+function renderTopMenu() {
+  const list = $('#top-menu-list');
+  if (!list) return;
+  const items = [
+    ['pos', '🛒 หน้าขาย'], ['kds', '☕ คิวชง / Kitchen View'], ['products', '🍕 จัดการเมนูและสูตร'],
+    ['inventory', '📦 สต็อกและต้นทุน'], ['pricing', '💰 ราคาออนไลน์ / GP'], ['members', '👤 สมาชิก'], ['reports', '📊 รายงาน']
+  ];
+  list.replaceChildren(...items.filter(([key]) => key === 'pos' || state.features[key] !== false).map(([key,label]) => {
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+    button.onclick = () => { $('.top-menu')?.classList.remove('open'); $('#top-menu-toggle')?.setAttribute('aria-expanded','false'); openModule(key); };
+    return button;
+  }));
+}
+
+function openAdminWindow(tab, title) {
+  document.querySelectorAll('.admin-tab-panel').forEach(panel => panel.classList.remove('active-panel'));
+  const panel = $('#' + tab);
+  if (panel) panel.classList.add('active-panel');
+  const heading = document.querySelector('#settings header h2');
+  if (heading) heading.textContent = title;
+  $('#settings')?.showModal();
+}
+
 function openModule(key) {
+  if (key === 'pos') { window.scrollTo({top:0,behavior:'smooth'}); return; }
   if (key === 'reports') { const rb = $('#reportsBtn'); rb && rb.click(); return; }
   if (key === 'kds') { openKdsMode(); return; }
-  if (key === 'inventory' || key === 'members' || key === 'recipes') {
-    const settingsBtn = $('#settingsBtn');
-    if (settingsBtn) settingsBtn.click();
-    const tabBtn = document.querySelector('.admin-tab-btn[data-tab="tab-inventory"]');
-    if (tabBtn) tabBtn.click();
+  if (key === 'inventory' || key === 'members' || key === 'recipes' || key === 'products' || key === 'pricing') {
+    const tab = key === 'products' || key === 'recipes' ? 'tab-products' : key === 'pricing' ? 'tab-pricing' : 'tab-inventory';
+    const title = key === 'products' || key === 'recipes' ? 'จัดการเมนูและสูตรชง' : key === 'pricing' ? 'ราคาออนไลน์และต้นทุน' : key === 'members' ? 'สมาชิก' : 'สต็อกวัตถุดิบ';
+    openAdminWindow(tab, title);
   }
 }
 
@@ -527,11 +551,8 @@ document.querySelectorAll('.quick-cash-btn').forEach(btn => {
     const received = val === 'exact' ? Math.ceil(total) : Number(val);
     if ($('#calc-received-input')) $('#calc-received-input').value = received;
     updateCalcChange();
-    if (received >= total) {
-      if (checkoutPayload) { checkoutPayload.received = received; checkoutPayload.changeDue = received - total; }
-      $('#checkout-calc-dialog')?.close();
-      await finalizeCheckout();
-    }
+    // Selecting a denomination only previews the change. The cashier must
+    // explicitly confirm before the order is saved and a receipt is shown.
   };
 });
 
@@ -894,6 +915,7 @@ async function adminLoad() {
   state.categories = boot.categories || [];
   state.inventory = boot.inventory || [];
   state.channels = boot.channels || [];
+  renderCostInventoryList();
 
   // ① Feature toggles
   const featuresEl = $('#features');
@@ -924,7 +946,8 @@ async function adminLoad() {
   }
 
   // ④ Products list in admin
-  const allProducts = await api('/api/admin/products');
+  const [allProducts, costingRows] = await Promise.all([api('/api/admin/products'), api('/api/costing')]);
+  const costingByProduct = Object.fromEntries(costingRows.map(row => [row.product_id, row]));
   const adminProdsEl = $('#admin-products');
   if (adminProdsEl) {
     adminProdsEl.replaceChildren();
@@ -934,6 +957,12 @@ async function adminLoad() {
 
       const info = document.createElement('span');
       info.innerHTML = `${p.emoji} <b>${p.name}</b> — <span style="color:var(--primary);">${money(p.price)}</span> <small style="color:#aaa;">(${p.category})</small>${p.active ? '' : ' <span style="color:#c0392b;font-size:10px;font-weight:700;">[ปิดขาย]</span>'}`;
+
+      const costing = costingByProduct[p.id];
+      const costInfo = document.createElement('small');
+      costInfo.style.cssText = 'display:block;color:var(--text-muted);margin-top:2px;';
+      costInfo.textContent = costing ? `ต้นทุน ${money(costing.cost)} · ราคาขาย ${money(p.price)} · กำไร ${money(costing.gross_profit)}` : `ราคาขาย ${money(p.price)}`;
+      info.append(costInfo);
 
       const editBtn = document.createElement('button');
       editBtn.textContent = '✏️ แก้ไข';
@@ -974,6 +1003,7 @@ async function adminLoad() {
 
   // ⑦ Product-centric pricing grid
   await renderChannelPricingGrid();
+  await renderCostingGrid();
 
   // ⑧ Inventory list
   renderInventoryList();
@@ -1030,6 +1060,33 @@ if (addCatBtn) {
 }
 
 // ── Online pricing grid ───────────────────────────────────────
+async function renderCostingGrid() {
+  const container = $('#costing-grid');
+  if (!container) return;
+  container.innerHTML = '<p class="hint">กำลังคำนวณต้นทุน…</p>';
+  try {
+    const rows = await api('/api/costing');
+    container.replaceChildren();
+    rows.forEach(row => {
+      const card = document.createElement('article');
+      card.className = 'cost-card';
+      const title = document.createElement('h4');
+      title.textContent = row.name;
+      const metrics = document.createElement('div');
+      metrics.className = 'cost-metrics';
+      [['ต้นทุน/แก้ว', money(row.cost)], ['ขายหน้าร้าน', money(row.store_price)], ['แนะนำที่ Margin ' + Math.round(row.target_margin * 100) + '%', money(row.recommended_store_price)], ['กำไรจริง', money(row.gross_profit)], ['Food cost', `${row.food_cost_percent}%`]].forEach(([label,value]) => { const item=document.createElement('div'); item.innerHTML=`<small>${label}</small><b>${value}</b>`; metrics.append(item); });
+      const formula = document.createElement('p');
+      formula.className = 'cost-formula';
+      formula.textContent = row.ingredients.length ? row.ingredients.map(x => `${x.name} ${x.quantity}${x.unit} (${money(x.line_cost)})`).join(' • ') : 'ยังไม่ได้ใส่สูตร — เปิด “จัดการเมนู” เพื่อเพิ่มวัตถุดิบ';
+      const online = document.createElement('p');
+      online.className = 'cost-online';
+      online.textContent = row.online.map(x => `${x.name} GP ${x.gp_percent}%: ราคาแนะนำ ${money(x.suggested_price)}`).join(' | ');
+      card.append(title, metrics, formula, online);
+      container.append(card);
+    });
+  } catch (e) { container.textContent = e.message; }
+}
+
 async function renderChannelPricingGrid() {
   const container = $('#channel-pricing-grid');
   if (!container) return;
@@ -1103,10 +1160,12 @@ async function renderChannelPricingGrid() {
 // ── Product Editor Overlay ────────────────────────────────────
 function renderEditRecipeItems() {
   const container = $('#edit-recipe-items-list');
+  const summary = $('#edit-recipe-cost-summary');
   if (!container) return;
   container.replaceChildren();
   if (!currentEditRecipeItems.length) {
     container.innerHTML = '<p style="color:#aaa;font-size:12px;font-style:italic;padding:4px 0;">ยังไม่ได้ผูกวัตถุดิบ/อุปกรณ์ในสูตรชง</p>';
+    if (summary) summary.textContent = 'ต้นทุนสูตร: ฿0.00';
     return;
   }
   currentEditRecipeItems.forEach((x, idx) => {
@@ -1118,7 +1177,9 @@ function renderEditRecipeItems() {
     meta.style.cssText = 'display:flex;align-items:center;gap:8px;';
     const qtySpan = document.createElement('strong');
     qtySpan.style.color = 'var(--primary)';
-    qtySpan.textContent = `${x.quantity} ${x.unit}`;
+    const unitCost = Number(x.cost_per_unit ?? state.inventory.find(item => item.stock_key === x.stock_key)?.cost_per_unit ?? 0);
+    const lineCost = Number(x.quantity) * unitCost;
+    qtySpan.textContent = `${x.quantity} ${x.unit} · ${money(lineCost)}`;
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.textContent = '✕ ลบ';
@@ -1128,6 +1189,18 @@ function renderEditRecipeItems() {
     row.append(nameSpan, meta);
     container.append(row);
   });
+  const total = currentEditRecipeItems.reduce((sum, x) => sum + Number(x.quantity) * Number(x.cost_per_unit ?? state.inventory.find(item => item.stock_key === x.stock_key)?.cost_per_unit ?? 0), 0);
+  const price = Number($('#edit-prod-price')?.value) || 0;
+  const margin = Math.min(94, Math.max(1, Number($('#edit-prod-margin')?.value) || 65));
+  const recommended = total ? total / (1 - margin / 100) : 0;
+  if (summary) {
+    summary.replaceChildren();
+    const cost=document.createElement('b'); cost.textContent=`ต้นทุนรวมต่อแก้ว ${money(total)}`;
+    const sale=document.createElement('span'); sale.textContent=`ราคาขาย ${money(price)} · กำไรขั้นต้น ${money(price-total)}`;
+    const rec=document.createElement('span'); rec.textContent=`ราคาแนะนำที่กำไร ${margin}%: ${money(recommended)}`;
+    const apply=document.createElement('button'); apply.type='button'; apply.textContent='ใช้ราคาแนะนำ'; apply.className='recipe-price-apply'; apply.onclick=()=>{const input=$('#edit-prod-price');if(input){input.value=Math.ceil(recommended / 5) * 5;renderEditRecipeItems();}};
+    summary.append(cost,sale,rec,apply);
+  }
 }
 
 async function openProductEditor(product) {
@@ -1139,6 +1212,7 @@ async function openProductEditor(product) {
     if ($('#edit-prod-id')) $('#edit-prod-id').value = product.id;
     if ($('#edit-prod-name')) $('#edit-prod-name').value = product.name;
     if ($('#edit-prod-price')) $('#edit-prod-price').value = product.price;
+    if ($('#edit-prod-margin')) $('#edit-prod-margin').value = Math.round((product.target_margin ?? .65) * 100);
     if ($('#edit-prod-emoji')) $('#edit-prod-emoji').value = product.emoji;
     if ($('#edit-prod-category')) $('#edit-prod-category').value = product.category;
     if ($('#edit-prod-active')) $('#edit-prod-active').checked = !!product.active;
@@ -1159,6 +1233,7 @@ async function openProductEditor(product) {
     if ($('#edit-prod-id')) $('#edit-prod-id').value = '';
     if ($('#edit-prod-name')) $('#edit-prod-name').value = '';
     if ($('#edit-prod-price')) $('#edit-prod-price').value = '';
+    if ($('#edit-prod-margin')) $('#edit-prod-margin').value = 65;
     if ($('#edit-prod-emoji')) $('#edit-prod-emoji').value = '☕';
     if ($('#edit-prod-category')) $('#edit-prod-category').value = state.categories[0]?.category_key || 'coffee';
     if ($('#edit-prod-active')) $('#edit-prod-active').checked = true;
@@ -1191,7 +1266,7 @@ if (addRecipeItemBtn) {
     if (!stockItem) return;
     const existing = currentEditRecipeItems.find(x => x.stock_key === key);
     if (existing) { existing.quantity = qty; }
-    else { currentEditRecipeItems.push({ stock_key: key, quantity: qty, name: stockItem.name, unit: stockItem.unit }); }
+    else { currentEditRecipeItems.push({ stock_key: key, quantity: qty, name: stockItem.name, unit: stockItem.unit, cost_per_unit: stockItem.cost_per_unit }); }
     if ($('#add-recipe-quantity')) $('#add-recipe-quantity').value = '';
     renderEditRecipeItems();
   };
@@ -1204,6 +1279,7 @@ if (saveProductBtn) {
     const id = $('#edit-prod-id')?.value;
     const name = ($('#edit-prod-name')?.value || '').trim();
     const price = Number($('#edit-prod-price')?.value);
+    const targetMargin = Number($('#edit-prod-margin')?.value) / 100;
     const category = $('#edit-prod-category')?.value || 'other';
     const emoji = ($('#edit-prod-emoji')?.value || '☕').slice(0, 8);
     const active = !!$('#edit-prod-active')?.checked;
@@ -1215,11 +1291,13 @@ if (saveProductBtn) {
       let productId;
       if (id) {
         await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, category, emoji, active }) });
+        await api(`/api/admin/products/${id}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         productId = Number(id);
         showNotice('บันทึกข้อมูลสินค้าสำเร็จ!');
       } else {
         const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, category, emoji }) });
         productId = res.id;
+        await api(`/api/admin/products/${productId}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         showNotice('เพิ่มสินค้าใหม่สำเร็จ!');
       }
       // Save structured recipe
@@ -1261,6 +1339,48 @@ if (discountEl) discountEl.oninput = renderCart;
 
 const checkoutBtn = $('#checkout');
 if (checkoutBtn) checkoutBtn.onclick = checkout;
+
+$('#edit-prod-price') && ($('#edit-prod-price').oninput = renderEditRecipeItems);
+$('#edit-prod-margin') && ($('#edit-prod-margin').oninput = renderEditRecipeItems);
+
+function refreshUnitCostPreview() {
+  const qty=Number($('#cost-inv-purchase-qty')?.value)||0, total=Number($('#cost-inv-purchase-total')?.value)||0;
+  const out=$('#cost-inv-unit-price'); if(out) out.textContent=qty>0?money(total/qty):money(0);
+}
+['#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(selector => { const el=$(selector); if(el) el.oninput=refreshUnitCostPreview; });
+$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>{ ['#cost-inv-key','#cost-inv-name','#cost-inv-unit','#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(s=>{const el=$(s);if(el)el.value='';}); if($('#cost-inv-quantity'))$('#cost-inv-quantity').value=0;if($('#cost-inv-low'))$('#cost-inv-low').value=0;refreshUnitCostPreview();$('#cost-inventory-dialog')?.showModal(); });
+$('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{ const stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value); if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกข้อมูลราคาซื้อและปริมาณให้ครบ','error');try{await api('/api/admin/cost-inventory',{method:'POST',body:JSON.stringify({stockKey,name,unit,category,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('บันทึกต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(e.message,'error');} });
+
+const topMenuToggle = $('#top-menu-toggle');
+if (topMenuToggle) topMenuToggle.onclick = () => {
+  const menu = $('.top-menu'); const open = menu?.classList.toggle('open');
+  topMenuToggle.setAttribute('aria-expanded', String(!!open));
+};
+document.addEventListener('click', event => { if (!event.target.closest('.top-menu')) { $('.top-menu')?.classList.remove('open'); topMenuToggle?.setAttribute('aria-expanded','false'); } });
+
+let costInventoryEditingKey = null;
+function openCostInventory(item = null) {
+  costInventoryEditingKey = item?.stock_key || null;
+  const set=(id,value)=>{const el=$(id);if(el)el.value=value ?? '';};
+  set('#cost-inv-key', item?.stock_key || ''); set('#cost-inv-name', item?.name || ''); set('#cost-inv-unit', item?.unit || '');
+  set('#cost-inv-category', item?.category || 'ingredient'); set('#cost-inv-quantity', item?.quantity || 0); set('#cost-inv-low', item?.low_alert || 0);
+  set('#cost-inv-purchase-qty', item?.purchase_quantity || 1); set('#cost-inv-purchase-total', item?.purchase_total || item?.cost_per_unit || 0);
+  const key=$('#cost-inv-key'); if(key) key.readOnly=!!item;
+  const title=document.querySelector('#cost-inventory-dialog h2'); if(title) title.textContent=item?'แก้ไขราคาซื้อและต้นทุน':'เพิ่มวัตถุดิบ / บรรจุภัณฑ์';
+  refreshUnitCostPreview(); $('#cost-inventory-dialog')?.showModal();
+}
+function renderCostInventoryList() {
+  const root=$('#cost-inventory-list'); if(!root) return; root.replaceChildren();
+  const title=document.createElement('h4'); title.textContent='รายการต้นทุนทั้งหมด'; root.append(title);
+  if(!state.inventory.length) { const empty=document.createElement('p');empty.textContent='ยังไม่มีรายการ';root.append(empty);return; }
+  state.inventory.slice().sort((a,b)=>String(a.category).localeCompare(String(b.category))||a.name.localeCompare(b.name)).forEach(item=>{
+    const row=document.createElement('div');row.className='cost-inventory-row';
+    const info=document.createElement('div'); const name=document.createElement('b');name.textContent=item.name;const detail=document.createElement('small');detail.textContent=`${item.category==='equipment'?'บรรจุภัณฑ์/อุปกรณ์':'วัตถุดิบ'} · ${money(item.cost_per_unit)}/${item.unit}`;info.append(name,detail);
+    const edit=document.createElement('button');edit.type='button';edit.textContent='แก้ไขต้นทุน';edit.onclick=()=>openCostInventory(item);row.append(info,edit);root.append(row);
+  });
+}
+$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>openCostInventory());
+$('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{const stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value);if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกข้อมูลราคาซื้อและปริมาณให้ครบ','error');try{const url=costInventoryEditingKey?`/api/admin/cost-inventory/${costInventoryEditingKey}`:'/api/admin/cost-inventory';await api(url,{method:costInventoryEditingKey?'PUT':'POST',body:JSON.stringify({stockKey,name,unit,category,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('อัปเดตต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(e.message,'error');}});
 
 $('#modifier-confirm-btn') && ($('#modifier-confirm-btn').onclick = confirmModifier);
 
