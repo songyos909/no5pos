@@ -324,14 +324,7 @@
           </div>
           <div id="edit-recipe-cost-summary" class="recipe-cost-summary"></div>
           
-          <!-- Add Recipe Item Row -->
-          <div style="display:grid; grid-template-columns: 1.5fr 1fr auto; gap:6px; background:#faf8f5; padding:8px; border-radius:8px; border:1px solid #f1e7de; align-items:center;">
-            <select id="add-recipe-stock-key" style="padding:6px; font-size:12.5px;">
-              <!-- stock items dropdown -->
-            </select>
-            <input type="number" id="add-recipe-quantity" placeholder="ปริมาณ" min="0.01" step="0.01" style="padding:6px; font-size:12.5px;">
-            <button type="button" class="primary-btn" id="btn-add-recipe-item" style="font-size:11px; padding:7px 12px;">+ เพิ่มวัตถุดิบ</button>
-          </div>
+          <button type="button" id="btn-open-recipe-selector" class="secondary-btn" style="width:100%; min-height:44px;">เลือกวัตถุดิบ / บรรจุภัณฑ์ และกำหนดปริมาณ</button>
         </div>
         
         <!-- Recipe Instruction Description (Single field as requested) -->
@@ -348,6 +341,14 @@
           </button>
         </div>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="recipe-selector-dialog" class="touch-dialog recipe-selector-dialog">
+    <form method="dialog"><header><div><p class="eyebrow">RECIPE STOCK SELECTOR</p><h2>เลือกสิ่งที่ต้องหักสต็อก</h2></div><button class="close" value="cancel">×</button></header>
+      <p class="hint">ติ๊กเลือกรายการได้หลายรายการ ปรับปริมาณต่อ 1 แก้ว แล้วกดบันทึกครั้งเดียว</p>
+      <div id="recipe-selector-list" class="recipe-selector-list"></div>
+      <footer class="touch-dialog-footer"><span id="recipe-selector-count"></span><button type="button" class="primary" id="recipe-selector-apply">ใช้รายการที่เลือก</button></footer>
     </form>
   </dialog>
 

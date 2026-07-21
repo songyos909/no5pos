@@ -1018,13 +1018,7 @@ async function adminLoad() {
     editCatSel.replaceChildren(...boot.categories.map(c => new Option(c.name, c.category_key)));
   }
 
-  // ③ Populate inventory dropdown in recipe builder
-  const recipeStockSel = $('#add-recipe-stock-key');
-  if (recipeStockSel) {
-    recipeStockSel.replaceChildren(...boot.inventory.map(x => new Option(`${x.name} (${x.unit})`, x.stock_key)));
-  }
-
-  // ④ Products list in admin
+  // ③ Products list in admin
   const [allProducts, costingRows] = await Promise.all([api('/api/admin/products'), api('/api/costing')]);
   const costingByProduct = Object.fromEntries(costingRows.map(row => [row.product_id, row]));
   const adminProdsEl = $('#admin-products');
@@ -1334,22 +1328,17 @@ if (triggerAddBtn) triggerAddBtn.onclick = () => openProductEditor(null);
 // Close product editor
 document.querySelectorAll('#product-edit-dialog .close').forEach(b => { b.onclick = () => $('#product-edit-dialog')?.close(); });
 
-// Add recipe item button
-const addRecipeItemBtn = $('#btn-add-recipe-item');
-if (addRecipeItemBtn) {
-  addRecipeItemBtn.onclick = () => {
-    const key = $('#add-recipe-stock-key')?.value;
-    const qty = Number($('#add-recipe-quantity')?.value);
-    if (!key || isNaN(qty) || qty <= 0) return alert('กรอกวัตถุดิบและปริมาณให้ถูกต้อง');
-    const stockItem = state.inventory.find(x => x.stock_key === key);
-    if (!stockItem) return;
-    const existing = currentEditRecipeItems.find(x => x.stock_key === key);
-    if (existing) { existing.quantity = qty; }
-    else { currentEditRecipeItems.push({ stock_key: key, quantity: qty, name: stockItem.name, unit: stockItem.unit, cost_per_unit: stockItem.cost_per_unit }); }
-    if ($('#add-recipe-quantity')) $('#add-recipe-quantity').value = '';
-    renderEditRecipeItems();
-  };
+function renderRecipeSelector() {
+  const root=$('#recipe-selector-list'); if(!root)return; root.replaceChildren();
+  [['ingredient','วัตถุดิบ'],['equipment','อุปกรณ์ / บรรจุภัณฑ์']].forEach(([category,title])=>{
+    const group=document.createElement('section');group.className='recipe-selector-group';const heading=document.createElement('h3');heading.textContent=category==='ingredient'?`🥛 ${title}`:`📦 ${title}`;group.append(heading);
+    const items=state.inventory.filter(x=>(x.category||'ingredient')===category);
+    if(!items.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='ยังไม่มีรายการในกลุ่มนี้';group.append(empty);}
+    items.forEach(stock=>{const saved=currentEditRecipeItems.find(x=>x.stock_key===stock.stock_key);const row=document.createElement('div');row.className='recipe-selector-row';row.dataset.stockKey=stock.stock_key;const check=document.createElement('input');check.type='checkbox';check.checked=!!saved;const label=document.createElement('label');label.textContent=stock.name;const meta=document.createElement('small');meta.textContent=`${stock.stock_key} · ต้นทุน ${money(stock.cost_per_unit||0)}/${stock.unit}`;label.append(meta);const qty=document.createElement('input');qty.type='number';qty.min='0.01';qty.step='0.01';qty.value=saved?.quantity||1;qty.disabled=!check.checked;qty.setAttribute('aria-label',`ปริมาณ ${stock.name}`);check.onchange=()=>{qty.disabled=!check.checked;};row.append(check,label,qty);group.append(row);});root.append(group);
+  });
 }
+$('#btn-open-recipe-selector') && ($('#btn-open-recipe-selector').onclick=()=>{renderRecipeSelector();$('#recipe-selector-dialog')?.showModal();});
+$('#recipe-selector-apply') && ($('#recipe-selector-apply').onclick=()=>{const rows=[...document.querySelectorAll('.recipe-selector-row')],selected=[];rows.forEach(row=>{const check=row.querySelector('input[type="checkbox"]'),qty=row.querySelector('input[type="number"]');if(!check?.checked||!(Number(qty?.value)>0))return;const stock=state.inventory.find(x=>x.stock_key===row.dataset.stockKey);if(stock)selected.push({stock_key:stock.stock_key,quantity:Number(qty.value),name:stock.name,unit:stock.unit,cost_per_unit:stock.cost_per_unit});});currentEditRecipeItems=selected;$('#recipe-selector-dialog')?.close();renderEditRecipeItems();});
 
 // Save product & recipe button
 const saveProductBtn = $('#btn-save-product-edit');
