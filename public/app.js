@@ -15,8 +15,7 @@ let state = {
   channels: [],
   recipesData: [],
   selectedCategory: 'all',
-  selectedStockCategory: 'all', selectedMaterialType: 'all',
-  recipeGroups: []
+  selectedStockCategory: 'all', selectedMaterialType: 'all'
 };
 let adminPin = '';
 let currentMember = null;
@@ -1343,14 +1342,8 @@ function renderRecipeSelector() {
     items.forEach(stock=>{const saved=recipeSelectorDraft.find(x=>x.stock_key===stock.stock_key);const row=document.createElement('div');row.className='recipe-selector-row';row.dataset.stockKey=stock.stock_key;const check=document.createElement('input');check.type='checkbox';check.checked=!!saved;const label=document.createElement('label');label.textContent=stock.name;const meta=document.createElement('small');meta.textContent=`${stock.stock_key} · ต้นทุน ${money(stock.cost_per_unit||0)}/${stock.unit}`;label.append(meta);const qty=document.createElement('input');qty.type='number';qty.min='0.01';qty.step='0.01';qty.value=saved?.quantity||1;qty.disabled=!check.checked;qty.setAttribute('aria-label',`ปริมาณ ${stock.name}`);check.onchange=()=>{qty.disabled=!check.checked;setRecipeSelectorItem(stock.stock_key,check.checked?Number(qty.value)||1:0);};qty.oninput=()=>{if(check.checked)setRecipeSelectorItem(stock.stock_key,Number(qty.value)||0);};row.append(check,label,qty);group.append(row);});root.append(group);
   });
 }
-function renderRecipeGroupOptions() { const select=$('#recipe-group-select'); if(!select)return; const selected=select.value; select.replaceChildren(new Option('ใช้กลุ่มที่บันทึกไว้…',''),...state.recipeGroups.map(group=>new Option(group.name,group.id))); select.value=selected; }
-async function loadRecipeGroups() { try { state.recipeGroups=await api('/api/admin/recipe-groups'); } catch(e) { state.recipeGroups=[]; showNotice(e.message,'error'); } renderRecipeGroupOptions(); }
-function selectedRecipeGroupItems() { return recipeSelectorDraft.filter(x=>Number(x.quantity)>0); }
-$('#btn-open-recipe-selector') && ($('#btn-open-recipe-selector').onclick=async()=>{recipeSelectorDraft=currentEditRecipeItems.map(x=>({stock_key:x.stock_key,quantity:Number(x.quantity)}));await loadRecipeGroups();renderRecipeSelector();$('#recipe-selector-dialog')?.showModal();});
+$('#btn-open-recipe-selector') && ($('#btn-open-recipe-selector').onclick=()=>{recipeSelectorDraft=currentEditRecipeItems.map(x=>({stock_key:x.stock_key,quantity:Number(x.quantity)}));renderRecipeSelector();$('#recipe-selector-dialog')?.showModal();});
 $('#recipe-material-filter') && ($('#recipe-material-filter').onchange=renderRecipeSelector);
-$('#recipe-group-use') && ($('#recipe-group-use').onclick=()=>{const group=state.recipeGroups.find(x=>x.id===$('#recipe-group-select')?.value);if(!group)return showNotice('เลือกกลุ่มที่ต้องการใช้','error');const selected=new Map(recipeSelectorDraft.map(x=>[x.stock_key,x.quantity]));(group.items||[]).forEach(x=>selected.set(x.stock_key,Number(x.quantity)||1));recipeSelectorDraft=[...selected].map(([stock_key,quantity])=>({stock_key,quantity}));renderRecipeSelector();});
-$('#recipe-group-save') && ($('#recipe-group-save').onclick=async()=>{const name=($('#recipe-group-name')?.value||'').trim(),items=selectedRecipeGroupItems();if(!name||!items.length)return showNotice('ตั้งชื่อกลุ่มและติ๊กรายการอย่างน้อย 1 รายการ','error');try{await api('/api/admin/recipe-groups',{method:'POST',body:JSON.stringify({name,items})});$('#recipe-group-name').value='';await loadRecipeGroups();showNotice('บันทึกกลุ่มรายการแล้ว');}catch(e){showNotice(e.message,'error');}});
-$('#recipe-group-delete') && ($('#recipe-group-delete').onclick=async()=>{const id=$('#recipe-group-select')?.value;if(!id)return showNotice('เลือกกลุ่มที่ต้องการลบ','error');if(!confirm('ลบกลุ่มรายการนี้?'))return;try{await api(`/api/admin/recipe-groups/${id}`,{method:'DELETE'});await loadRecipeGroups();showNotice('ลบกลุ่มรายการแล้ว');}catch(e){showNotice(e.message,'error');}});
 $('#recipe-selector-apply') && ($('#recipe-selector-apply').onclick=()=>{currentEditRecipeItems=recipeSelectorDraft.flatMap(x=>{const stock=state.inventory.find(item=>item.stock_key===x.stock_key);return stock?[{stock_key:stock.stock_key,quantity:Number(x.quantity),name:stock.name,unit:stock.unit,cost_per_unit:stock.cost_per_unit}]:[];});$('#recipe-selector-dialog')?.close();renderEditRecipeItems();});
 
 // Save product & recipe button
