@@ -1,4 +1,4 @@
-# Caffé Aroma POS
+# No.5 Cafe POS
 
 ระบบ POS ร้านกาแฟแบบ full-stack: Express + SQLite + Vanilla JavaScript โดยไม่มี AI หรือ Gemini API Key
 
