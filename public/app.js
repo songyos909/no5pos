@@ -156,9 +156,10 @@ function openModule(key) {
   if (key === 'reports') { const rb = $('#reportsBtn'); rb && rb.click(); return; }
   if (key === 'kds') { openKdsMode(); return; }
   if (key === 'inventory' || key === 'members' || key === 'recipes' || key === 'products' || key === 'pricing') {
-    const tab = key === 'products' || key === 'recipes' ? 'tab-products' : key === 'pricing' ? 'tab-pricing' : 'tab-inventory';
-    const title = key === 'products' || key === 'recipes' ? 'จัดการเมนูและสูตรชง' : key === 'pricing' ? 'ราคาออนไลน์และต้นทุน' : key === 'members' ? 'สมาชิก' : 'สต็อกวัตถุดิบ';
+    const tab = key === 'products' || key === 'recipes' ? 'tab-products' : key === 'pricing' ? 'tab-pricing' : key === 'members' ? 'tab-members' : 'tab-inventory';
+    const title = key === 'products' || key === 'recipes' ? 'จัดการเมนูและสูตรชง' : key === 'pricing' ? 'ราคาออนไลน์และต้นทุน' : key === 'members' ? 'ระบบสมาชิก' : 'สต็อกวัตถุดิบ';
     openAdminWindow(tab, title);
+    if (key === 'members') renderAdminMembers();
   }
 }
 
@@ -384,10 +385,31 @@ function renderCart() {
 
   // Update total
   const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
-  const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
+  
+  let memberDiscount = 0;
+  const useFreeCupEl = $('#member-use-free-cup');
+  if (useFreeCupEl && useFreeCupEl.checked && currentMember && currentMember.points >= 10) {
+    const beverages = state.cart.filter(x => x.product.category !== 'bakery');
+    if (beverages.length > 0) {
+      const cheapest = beverages.reduce((min, x) => (x.unitPrice || x.product.price) < (min.unitPrice || min.product.price) ? x : min, beverages[0]);
+      memberDiscount = cheapest.unitPrice || cheapest.product.price;
+    } else {
+      useFreeCupEl.checked = false;
+      showNotice('ต้องมีเครื่องดื่มในตะกร้าอย่างน้อย 1 แก้ว เพื่อใช้สิทธิ์', 'error');
+    }
+  }
+
+  const manualDisc = Math.min(Number($('#discount')?.value) || 0, subtotal - memberDiscount);
+  const disc = memberDiscount + manualDisc;
   const total = subtotal - disc;
   const totalEl = $('#total');
-  if (totalEl) totalEl.textContent = money(total);
+  if (totalEl) {
+    if (memberDiscount > 0) {
+      totalEl.innerHTML = `${money(total)} <small style="font-size:11px;color:#27ae60;display:block;">(รวมส่วนลดแลกฟรี -${money(memberDiscount)})</small>`;
+    } else {
+      totalEl.textContent = money(total);
+    }
+  }
   const countEl = $('#count');
   if (countEl) countEl.textContent = state.cart.reduce((s, x) => s + x.qty, 0);
 }
@@ -397,24 +419,37 @@ async function searchMember() {
   const phone = ($('#member-phone')?.value || '').replace(/\D/g, '');
   const info = $('#member-info');
   const regBtn = $('#register-member-btn');
+  const redeemRow = $('#member-redeem-row');
+  const useFreeCupEl = $('#member-use-free-cup');
+  
   currentMember = null;
+  if (redeemRow) redeemRow.style.display = 'none';
+  if (useFreeCupEl) useFreeCupEl.checked = false;
+  
   if (phone.length < 9) {
     if (info) { info.textContent = ''; info.className = 'member-info'; }
     if (regBtn) regBtn.style.display = 'none';
+    renderCart();
     return;
   }
   try {
     const member = await api(`/api/members/${phone}`);
-    if (info) { info.textContent = `✓ ${member.name} (${member.points} แต้ม)`; info.className = 'member-info success'; }
+    if (info) { info.textContent = `✓ ${member.name} (สะสม ${member.points} แก้ว)`; info.className = 'member-info success'; }
     if (regBtn) regBtn.style.display = 'none';
     currentMember = member;
+    if (member.points >= 10) {
+      if (redeemRow) redeemRow.style.display = 'flex';
+    }
+    renderCart();
   } catch {
     if (info) { info.textContent = '❌ ไม่พบสมาชิก'; info.className = 'member-info error'; }
     if (regBtn) regBtn.style.display = 'inline-block';
+    renderCart();
   }
 }
 
 $('#member-phone') && ($('#member-phone').oninput = searchMember);
+$('#member-use-free-cup') && ($('#member-use-free-cup').onchange = () => renderCart());
 
 const regMemberBtn = $('#register-member-btn');
 if (regMemberBtn) {
@@ -433,9 +468,23 @@ if (regMemberBtn) {
 async function checkout() {
   if (!state.cart.length) return showNotice('เพิ่มสินค้าในตะกร้าก่อนครับ', 'error');
   const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
-  const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
+  
+  // Calculate member discount
+  let memberDiscount = 0;
+  const useFreeCupEl = $('#member-use-free-cup');
+  if (useFreeCupEl && useFreeCupEl.checked && currentMember && currentMember.points >= 10) {
+    const beverages = state.cart.filter(x => x.product.category !== 'bakery');
+    if (beverages.length > 0) {
+      const cheapest = beverages.reduce((min, x) => (x.unitPrice || x.product.price) < (min.unitPrice || min.product.price) ? x : min, beverages[0]);
+      memberDiscount = cheapest.unitPrice || cheapest.product.price;
+    }
+  }
+
+  const manualDisc = Math.min(Number($('#discount')?.value) || 0, subtotal - memberDiscount);
+  const disc = memberDiscount + manualDisc;
   const total = subtotal - disc;
   const payType = $('#payment')?.value || 'cash';
+  const redeemFreeCup = memberDiscount > 0;
 
   checkoutPayload = {
     items: state.cart.map(x => ({ productId: x.product.id, quantity: x.qty, options: x.options })),
@@ -443,7 +492,8 @@ async function checkout() {
     paymentType: payType,
     memberPhone: currentMember?.phone || null,
     received: total,
-    changeDue: 0
+    changeDue: 0,
+    redeemFreeCup: redeemFreeCup
   };
 
   if (payType === 'cash') {
@@ -468,6 +518,13 @@ async function finalizeCheckout() {
     if ($('#member-phone')) $('#member-phone').value = '';
     currentMember = null;
     checkoutPayload = null;
+    
+    // Hide redeem free cup row
+    const redeemRow = $('#member-redeem-row');
+    if (redeemRow) redeemRow.style.display = 'none';
+    const useFreeCupEl = $('#member-use-free-cup');
+    if (useFreeCupEl) useFreeCupEl.checked = false;
+
     await load();
     showReceipt(order);
   } catch (e) {
@@ -515,9 +572,8 @@ function showReceipt(order) {
   if (mRow) {
     if (order.memberPhone) {
       mRow.style.display = 'flex';
-      const pts = Math.floor(order.total / 10);
       const ptEl = mRow.querySelector('span:last-child') || $('#receipt-member-points');
-      if (ptEl) ptEl.textContent = `+${pts} คะแนน (${order.memberPhone})`;
+      if (ptEl) ptEl.textContent = `สะสม ${order.memberPoints || 0} แก้ว (${order.memberPhone})`;
     } else {
       mRow.style.display = 'none';
     }
@@ -775,38 +831,60 @@ function renderInventoryList() {
   items.forEach(x => {
     const row = document.createElement('div');
     row.className = 'stock';
-    const catLabel = x.category === 'ingredient' ? '🍏วัตถุดิบ' : '🥤อุปกรณ์';
+    row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #f1e7de; gap:12px;';
+    
+    const catLabel = x.category === 'ingredient' ? '🍏 วัตถุดิบ' : '🥤 อุปกรณ์';
     const isLow = x.quantity <= x.low_alert;
-    row.innerHTML = `<span>${x.name} <small style="color:${isLow ? '#c0392b' : '#888'}">(${catLabel}) ${x.quantity} ${x.unit}${isLow ? ' ⚠️ ใกล้หมด' : ''}</small></span>`;
-    const btn = document.createElement('button');
-    btn.textContent = '⊕ ปรับสต็อก';
-    btn.className = 'primary-btn';
-    btn.style.fontSize = '11px';
-    btn.onclick = () => openStockAdjustDialog(x);
+    
+    const info = document.createElement('div');
+    info.style.cssText = 'display:flex; flex-direction:column; gap:2px;';
+    
+    const name = document.createElement('span');
+    name.style.cssText = 'font-weight:600; color:var(--primary);';
+    name.textContent = x.name;
+    
+    const details = document.createElement('small');
+    details.style.cssText = 'color:#888; font-size:11px;';
+    details.textContent = `${catLabel} · รหัส: ${x.stock_key} · ต้นทุน: ${money(x.cost_per_unit)}/${x.unit}`;
+    
+    info.append(name, details);
+    
+    const qtyContainer = document.createElement('div');
+    qtyContainer.style.cssText = 'margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:2px;';
+    
+    const qty = document.createElement('strong');
+    qty.style.cssText = `font-size:14px; color:${isLow ? '#c0392b' : 'var(--primary)'};`;
+    qty.textContent = `${x.quantity} ${x.unit}`;
+    
+    const lowLabel = document.createElement('small');
+    lowLabel.style.cssText = `font-size:10px; color:${isLow ? '#c0392b' : '#aaa'};`;
+    lowLabel.textContent = isLow ? '⚠️ ใกล้หมด' : `แจ้งเตือนที่: ${x.low_alert} ${x.unit}`;
+    
+    qtyContainer.append(qty, lowLabel);
+
+    const actions = document.createElement('span');
+    actions.style.cssText = 'display:flex; gap:4px; align-items:center;';
+
+    const adjustBtn = document.createElement('button');
+    adjustBtn.textContent = '⊕ ปรับสต็อก';
+    adjustBtn.className = 'primary-btn';
+    adjustBtn.style.fontSize = '11px';
+    adjustBtn.onclick = () => openStockAdjustDialog(x);
+
     const editBtn = document.createElement('button');
     editBtn.textContent = '✏️ แก้ไข';
     editBtn.style.cssText = 'font-size:11px;';
-    editBtn.onclick = () => editInventoryItem(x);
+    editBtn.onclick = () => openCostInventory(x);
+
     const deleteBtn = document.createElement('button');
     deleteBtn.textContent = '🗑️';
-    deleteBtn.style.cssText = 'font-size:11px;color:#b42318;';
+    deleteBtn.style.cssText = 'font-size:11px; color:#b42318; background:#f8d7da; border:1px solid #f5c6cb;';
     deleteBtn.onclick = () => deleteInventoryItem(x);
-    const actions = document.createElement('span');
-    actions.style.cssText = 'display:flex;gap:4px;align-items:center;';
-    actions.append(btn, editBtn, deleteBtn);
-    row.append(actions);
+
+    actions.append(adjustBtn, editBtn, deleteBtn);
+    row.append(info, qtyContainer, actions);
     container.append(row);
   });
-}
-
-async function editInventoryItem(item) {
-  const name = prompt('ชื่อรายการ', item.name); if (name === null) return;
-  const unit = prompt('หน่วยนับ', item.unit); if (unit === null) return;
-  const quantity = Number(prompt('จำนวนคงเหลือ', item.quantity));
-  const lowAlert = Number(prompt('แจ้งเตือนเมื่อเหลือ', item.low_alert));
-  const category = prompt('ประเภท: ingredient หรือ equipment', item.category);
-  if (!name.trim() || !unit.trim() || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(lowAlert) || lowAlert < 0 || !['ingredient','equipment'].includes(category)) return showNotice('ข้อมูลสต็อกไม่ถูกต้อง', 'error');
-  try { await api(`/api/admin/inventory/${item.stock_key}`, { method:'PUT', body:JSON.stringify({name,unit,quantity,lowAlert,category}) }); showNotice('แก้ไขรายการสต็อกแล้ว'); await load(); await adminLoad(); } catch (e) { showNotice(e.message,'error'); }
 }
 
 async function deleteInventoryItem(item) {
@@ -815,15 +893,7 @@ async function deleteInventoryItem(item) {
 }
 
 const addInventoryBtn = $('#btn-add-inventory');
-if (addInventoryBtn) addInventoryBtn.onclick = async () => {
-  const stockKey = prompt('รหัสรายการภาษาอังกฤษ เช่น syrup_vanilla'); if (!stockKey) return;
-  const name = prompt('ชื่อรายการ'); if (!name) return;
-  const unit = prompt('หน่วยนับ เช่น มล., กรัม, ชิ้น'); if (!unit) return;
-  const quantity = Number(prompt('จำนวนเริ่มต้น', '0'));
-  const lowAlert = Number(prompt('แจ้งเตือนเมื่อเหลือ', '0'));
-  const category = prompt('ประเภท: ingredient หรือ equipment', 'ingredient');
-  try { await api('/api/admin/inventory', { method:'POST', body:JSON.stringify({stockKey,name,unit,quantity,lowAlert,category}) }); showNotice('เพิ่มรายการสต็อกแล้ว'); await load(); await adminLoad(); } catch (e) { showNotice(e.message,'error'); }
-};
+if (addInventoryBtn) addInventoryBtn.onclick = () => openCostInventory();
 
 function openStockAdjustDialog(item) {
   const el = id => $(id);
@@ -916,7 +986,8 @@ async function adminLoad() {
   state.categories = boot.categories || [];
   state.inventory = boot.inventory || [];
   state.channels = boot.channels || [];
-  renderCostInventoryList();
+  renderInventoryList();
+  renderAdminMembers();
 
   // ① Feature toggles
   const featuresEl = $('#features');
@@ -1370,18 +1441,111 @@ function openCostInventory(item = null) {
   const title=document.querySelector('#cost-inventory-dialog h2'); if(title) title.textContent=item?'แก้ไขราคาซื้อและต้นทุน':'เพิ่มวัตถุดิบ / บรรจุภัณฑ์';
   refreshUnitCostPreview(); $('#cost-inventory-dialog')?.showModal();
 }
-function renderCostInventoryList() {
-  const root=$('#cost-inventory-list'); if(!root) return; root.replaceChildren();
-  const title=document.createElement('h4'); title.textContent='รายการต้นทุนทั้งหมด'; root.append(title);
-  if(!state.inventory.length) { const empty=document.createElement('p');empty.textContent='ยังไม่มีรายการ';root.append(empty);return; }
-  state.inventory.slice().sort((a,b)=>String(a.category).localeCompare(String(b.category))||a.name.localeCompare(b.name)).forEach(item=>{
-    const row=document.createElement('div');row.className='cost-inventory-row';
-    const info=document.createElement('div'); const name=document.createElement('b');name.textContent=item.name;const detail=document.createElement('small');detail.textContent=`${item.category==='equipment'?'บรรจุภัณฑ์/อุปกรณ์':'วัตถุดิบ'} · ${money(item.cost_per_unit)}/${item.unit}`;info.append(name,detail);
-    const edit=document.createElement('button');edit.type='button';edit.textContent='แก้ไขต้นทุน';edit.onclick=()=>openCostInventory(item);row.append(info,edit);root.append(row);
-  });
+let memberEditingPhone = null;
+async function renderAdminMembers() {
+  const container = $('#admin-members-list');
+  if (!container) return;
+  try {
+    const list = await api('/api/admin/members');
+    container.replaceChildren();
+    if (!list.length) {
+      container.innerHTML = '<p style="text-align:center;color:#888;padding:16px 0;font-size:13px;">ยังไม่มีสมาชิกในระบบ</p>';
+      return;
+    }
+    list.forEach(m => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #f1e7de; gap:12px;';
+      
+      const info = document.createElement('div');
+      info.style.cssText = 'display:flex; flex-direction:column; gap:2px;';
+      
+      const name = document.createElement('b');
+      name.style.cssText = 'color:var(--primary);';
+      name.textContent = m.name;
+      
+      const phoneSpan = document.createElement('small');
+      phoneSpan.style.cssText = 'color:#888; font-size:11px;';
+      phoneSpan.textContent = `เบอร์โทร: ${m.phone} · สะสม ${m.points} แก้ว`;
+      
+      info.append(name, phoneSpan);
+      
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.textContent = '✏️ แก้ไข';
+      editBtn.style.cssText = 'font-size:11px; padding:6px 12px;';
+      editBtn.className = 'secondary-btn';
+      editBtn.onclick = () => openMemberEditDialog(m);
+      
+      row.append(info, editBtn);
+      container.append(row);
+    });
+  } catch (e) {
+    container.innerHTML = `<p style="color:#b42318;text-align:center;">โหลดสมาชิกไม่สำเร็จ: ${e.message}</p>`;
+  }
 }
-$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>openCostInventory());
-$('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{const stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value);if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกข้อมูลราคาซื้อและปริมาณให้ครบ','error');try{const url=costInventoryEditingKey?`/api/admin/cost-inventory/${costInventoryEditingKey}`:'/api/admin/cost-inventory';await api(url,{method:costInventoryEditingKey?'PUT':'POST',body:JSON.stringify({stockKey,name,unit,category,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('อัปเดตต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(e.message,'error');}});
+
+function openMemberEditDialog(member = null) {
+  memberEditingPhone = member ? member.phone : null;
+  const phoneInput = $('#edit-member-phone');
+  const nameInput = $('#edit-member-name');
+  const pointsInput = $('#edit-member-points');
+  const title = $('#member-edit-title');
+  const deleteBtn = $('#btn-delete-member');
+  
+  if (phoneInput) {
+    phoneInput.value = member ? member.phone : '';
+    phoneInput.readOnly = !!member;
+  }
+  if (nameInput) nameInput.value = member ? member.name : '';
+  if (pointsInput) pointsInput.value = member ? member.points : 0;
+  
+  if (title) title.textContent = member ? 'แก้ไขข้อมูลสมาชิก' : 'เพิ่มสมาชิกใหม่';
+  if (deleteBtn) deleteBtn.style.display = member ? 'inline-block' : 'none';
+  
+  $('#member-edit-dialog')?.showModal();
+}
+
+// Member CRUD event bindings
+$('#btn-add-member') && ($('#btn-add-member').onclick = () => openMemberEditDialog());
+$('#btn-save-member') && ($('#btn-save-member').onclick = async () => {
+  const phone = ($('#edit-member-phone')?.value || '').trim();
+  const name = ($('#edit-member-name')?.value || '').trim();
+  const points = Number($('#edit-member-points')?.value || 0);
+  if (!phone || !name || isNaN(points) || points < 0) return showNotice('กรอกข้อมูลสมาชิกให้ครบและถูกต้อง', 'error');
+  try {
+    if (memberEditingPhone) {
+      await api(`/api/admin/members/${memberEditingPhone}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, points })
+      });
+      showNotice('แก้ไขสมาชิกสำเร็จ');
+    } else {
+      await api('/api/members', {
+        method: 'POST',
+        body: JSON.stringify({ phone, name })
+      });
+      if (points > 0) {
+        await api(`/api/admin/members/${phone}`, {
+          method: 'PUT',
+          body: JSON.stringify({ name, points })
+        });
+      }
+      showNotice('เพิ่มสมาชิกใหม่สำเร็จ');
+    }
+    $('#member-edit-dialog')?.close();
+    await renderAdminMembers();
+  } catch (e) { showNotice(e.message, 'error'); }
+});
+$('#btn-delete-member') && ($('#btn-delete-member').onclick = async () => {
+  if (!memberEditingPhone) return;
+  if (!confirm(`ยืนยันลบสมาชิกเบอร์ ${memberEditingPhone}?`)) return;
+  try {
+    await api(`/api/admin/members/${memberEditingPhone}`, { method: 'DELETE' });
+    showNotice('ลบสมาชิกสำเร็จ');
+    $('#member-edit-dialog')?.close();
+    await renderAdminMembers();
+  } catch (e) { showNotice(e.message, 'error'); }
+});
 
 $('#modifier-confirm-btn') && ($('#modifier-confirm-btn').onclick = confirmModifier);
 

@@ -206,7 +206,7 @@ app.get('/api/recipes', (_,res) => {
 });
 
 app.post('/api/orders', (req,res) => {
-  const {items, discount=0, paymentType, memberPhone=null, received=0, changeDue=0} = req.body || {};
+  const {items, discount=0, paymentType, memberPhone=null, received=0, changeDue=0, redeemFreeCup=false} = req.body || {};
   if (!Array.isArray(items) || !items.length || !['cash','qr'].includes(paymentType)) return fail(res,'Invalid payment data');
   if (!Number.isFinite(Number(discount)) || Number(discount)<0) return fail(res,'Invalid discount');
   try {
@@ -224,15 +224,36 @@ app.post('/api/orders', (req,res) => {
       for(const {product,qty} of lines) for(const item of getRecipeItems(product.id,product.stock_key)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
       db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,memberPhone||null,received,changeDue);
       for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name,unitPrice,qty,JSON.stringify(options)); for(const item of getRecipeItems(product.id,product.stock_key)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
-      if(memberPhone && enabled('members')) db.prepare('UPDATE members SET points=points+? WHERE phone=?').run(Math.floor(total/10),memberPhone);
-      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,memberPhone,received,changeDue,items:lines.map(x=>({name:x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
+      
+      let memberPoints = 0;
+      if(memberPhone && enabled('members')) {
+        const member = db.prepare('SELECT points FROM members WHERE phone=?').get(memberPhone);
+        if (member) {
+          let cupsEarned = 0;
+          for (const {product, qty} of lines) {
+            if (product.category !== 'bakery') {
+              cupsEarned += qty;
+            }
+          }
+          let newPoints = member.points;
+          if (redeemFreeCup) {
+            if (member.points < 10) throw Error('คะแนนไม่เพียงพอสำหรับแลกแก้วฟรี');
+            newPoints -= 10;
+            cupsEarned = Math.max(0, cupsEarned - 1);
+          }
+          newPoints += cupsEarned;
+          db.prepare('UPDATE members SET points=? WHERE phone=?').run(newPoints, memberPhone);
+          memberPoints = newPoints;
+        }
+      }
+      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,memberPhone,received,changeDue,memberPoints,items:lines.map(x=>({name:x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
     })();
     res.status(201).json(order);
   } catch(e) { fail(res,e.message); }
 });
 
 app.post('/api/orders-legacy', (req,res) => {
-  const {items, discount=0, paymentType, memberPhone=null, received=0, changeDue=0} = req.body || {};
+  const {items, discount=0, paymentType, memberPhone=null, received=0, changeDue=0, redeemFreeCup=false} = req.body || {};
   if (!Array.isArray(items) || !items.length || !['cash','qr'].includes(paymentType)) return fail(res,'ข้อมูลการชำระเงินไม่ถูกต้อง');
   if (!Number.isFinite(Number(discount)) || Number(discount)<0) return fail(res,'ส่วนลดไม่ถูกต้อง');
   try {
@@ -266,8 +287,28 @@ app.post('/api/orders-legacy', (req,res) => {
         }
       }
       
-      if(memberPhone && enabled('members')) db.prepare('UPDATE members SET points=points+? WHERE phone=?').run(Math.floor(total/10),memberPhone);
-      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,memberPhone,received,changeDue};
+      let memberPoints = 0;
+      if(memberPhone && enabled('members')) {
+        const member = db.prepare('SELECT points FROM members WHERE phone=?').get(memberPhone);
+        if (member) {
+          let cupsEarned = 0;
+          for (const {product, qty} of lines) {
+            if (product.category !== 'bakery') {
+              cupsEarned += qty;
+            }
+          }
+          let newPoints = member.points;
+          if (redeemFreeCup) {
+            if (member.points < 10) throw Error('คะแนนไม่เพียงพอสำหรับแลกแก้วฟรี');
+            newPoints -= 10;
+            cupsEarned = Math.max(0, cupsEarned - 1);
+          }
+          newPoints += cupsEarned;
+          db.prepare('UPDATE members SET points=? WHERE phone=?').run(newPoints, memberPhone);
+          memberPoints = newPoints;
+        }
+      }
+      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,memberPhone,received,changeDue,memberPoints};
     })(); res.status(201).json(order);
   } catch(e) { fail(res,e.message); }
 });

@@ -1,0 +1,2 @@
+cd /d D:\POS_Cafe
+npm start
