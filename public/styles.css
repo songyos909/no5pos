@@ -1291,6 +1291,21 @@ dialog form > header h2 {
 .touch-dialog-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid #eee3da; padding-top:16px; font-weight:700; font-size:20px; color:var(--primary); }
 .touch-dialog-footer .primary { min-height:52px; padding:10px 20px; }
 .kds-dialog { width:100vw; max-width:none; height:100vh; max-height:none; background:#f7f4f0; }
+
+/* Full-screen task workspace: every POS function has the same touch-first layout. */
+dialog:not(#kds-dialog) { width:100vw !important; max-width:none !important; height:100dvh !important; max-height:none !important; margin:0; padding:0; border:0; border-radius:0; background:var(--bg,#f7f4f0); box-shadow:none; }
+dialog:not(#kds-dialog)::backdrop { background:rgba(31,20,15,.58); }
+dialog:not(#kds-dialog) > form, dialog:not(#kds-dialog) > :first-child { box-sizing:border-box; display:flex; flex-direction:column; width:100%; min-height:100dvh; margin:0; padding:clamp(16px,3vw,34px); background:linear-gradient(135deg,#fffdfa 0%,#f7f1eb 100%); }
+dialog:not(#kds-dialog) header { position:sticky; top:0; z-index:4; margin:-4px 0 16px; padding:8px 0 16px; background:rgba(255,253,250,.96); backdrop-filter:blur(12px); }
+dialog:not(#kds-dialog) .touch-dialog-footer, dialog:not(#kds-dialog) footer { position:sticky; bottom:0; z-index:4; margin-top:auto; padding:16px 0 4px; background:rgba(255,253,250,.96); backdrop-filter:blur(12px); }
+dialog:not(#kds-dialog) .admin-tab-content, dialog:not(#kds-dialog) .settings-section, dialog:not(#kds-dialog) .recipe-selector-list, dialog:not(#kds-dialog) #reports-content { overscroll-behavior:contain; }
+dialog:not(#kds-dialog) input, dialog:not(#kds-dialog) select, dialog:not(#kds-dialog) textarea, dialog:not(#kds-dialog) button { min-height:44px; }
+#settings .admin-tabs-nav { position:sticky; top:76px; z-index:3; padding:8px 0; background:rgba(255,253,250,.96); overflow-x:auto; }
+#settings .admin-tab-content { flex:1; overflow:auto; padding-bottom:88px; }
+#product-edit-dialog > form > div { flex:1; max-height:none !important; overflow:auto; padding-bottom:92px !important; }
+#reports-dialog > form { overflow:auto; }
+#receipt-dialog { background:#fff !important; }
+@media (max-width:640px) { dialog:not(#kds-dialog) > form, dialog:not(#kds-dialog) > :first-child { padding:16px; } dialog:not(#kds-dialog) header { top:0; } }
 .kds-shell { min-height:100%; padding:clamp(18px,3vw,42px); }
 .kds-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; padding-top:24px; }
 .kds-card { min-height:280px; padding:22px; border-radius:18px; border:3px solid; display:flex; flex-direction:column; box-shadow:var(--shadow-md); }
