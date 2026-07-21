@@ -1426,6 +1426,20 @@ function refreshUnitCostPreview() {
   const qty=Number($('#cost-inv-purchase-qty')?.value)||0, total=Number($('#cost-inv-purchase-total')?.value)||0;
   const out=$('#cost-inv-unit-price'); if(out) out.textContent=qty>0?money(total/qty):money(0);
 }
+const inventoryGroupTemplates = {
+  'cold-cup-set': [
+    {stockKey:'cup_cold',name:'แก้วเย็น 16oz',unit:'ใบ',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0},
+    {stockKey:'lid_cold',name:'ฝาแก้วเย็น 16oz',unit:'ใบ',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0},
+    {stockKey:'straw',name:'หลอดพลาสติก',unit:'เส้น',category:'equipment',quantity:0,lowAlert:200,purchaseQuantity:1,purchaseTotal:0},
+    {stockKey:'ice',name:'น้ำแข็ง',unit:'กรัม',category:'ingredient',quantity:0,lowAlert:3000,purchaseQuantity:1,purchaseTotal:0}
+  ],
+  'hot-cup-set': [
+    {stockKey:'cup_hot',name:'แก้วร้อน 8oz',unit:'ใบ',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0},
+    {stockKey:'lid_hot',name:'ฝาแก้วร้อน 8oz',unit:'ใบ',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0},
+    {stockKey:'stirrer',name:'ไม้คนกาแฟ',unit:'อัน',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0}
+  ]
+};
+$('#inventory-group-add') && ($('#inventory-group-add').onclick=async()=>{ const key=$('#inventory-group-template')?.value,items=inventoryGroupTemplates[key]||[]; if(!items.length)return; try { const r=await api('/api/admin/cost-inventory/batch',{method:'POST',body:JSON.stringify({items})}); showNotice(`เพิ่ม ${r.added||0} รายการ · มีอยู่แล้ว ${r.existing||0} รายการ`); await load(); await adminLoad(); } catch(e) { showNotice(e.message,'error'); } });
 ['#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(selector => { const el=$(selector); if(el) el.oninput=refreshUnitCostPreview; });
 $('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>{ ['#cost-inv-key','#cost-inv-name','#cost-inv-unit','#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(s=>{const el=$(s);if(el)el.value='';}); if($('#cost-inv-quantity'))$('#cost-inv-quantity').value=0;if($('#cost-inv-low'))$('#cost-inv-low').value=0;refreshUnitCostPreview();$('#cost-inventory-dialog')?.showModal(); });
 $('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{ const stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value); if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกข้อมูลราคาซื้อและปริมาณให้ครบ','error');try{await api('/api/admin/cost-inventory',{method:'POST',body:JSON.stringify({stockKey,name,unit,category,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('บันทึกต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(e.message,'error');} });

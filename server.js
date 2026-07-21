@@ -376,6 +376,14 @@ app.get('/api/reports/transactions', (_, res) => {
 });
 
 app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare('SELECT feature_key,enabled FROM feature_settings').all()}));
+app.post('/api/admin/cost-inventory/batch', admin, (req,res) => {
+  const items=Array.isArray(req.body?.items)?req.body.items:[];
+  if(!items.length)return fail(res,'ไม่พบรายการที่ต้องการเพิ่ม');
+  const insert=db.prepare('INSERT INTO inventory(stock_key,name,unit,quantity,low_alert,category,purchase_quantity,purchase_total,cost_per_unit) VALUES (?,?,?,?,?,?,?,?,?)');
+  const exists=db.prepare('SELECT 1 FROM inventory WHERE stock_key=?'); let added=0,existing=0;
+  db.transaction(()=>items.forEach(raw=>{const stockKey=String(raw.stockKey||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');if(!stockKey||!raw.name||!raw.unit)return;if(exists.get(stockKey)){existing++;return;}const purchaseQuantity=Math.max(.01,Number(raw.purchaseQuantity)||1),purchaseTotal=Math.max(0,Number(raw.purchaseTotal)||0);insert.run(stockKey,String(raw.name),String(raw.unit),Math.max(0,Number(raw.quantity)||0),Math.max(0,Number(raw.lowAlert)||0),raw.category==='equipment'?'equipment':'ingredient',purchaseQuantity,purchaseTotal,purchaseTotal/purchaseQuantity);added++;}))();
+  res.status(201).json({ok:true,added,existing});
+});
 app.post('/api/admin/cost-inventory', admin, (req,res) => {
   const stockKey=String(req.body?.stockKey||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');
   const name=String(req.body?.name||'').trim(),unit=String(req.body?.unit||'').trim(),quantity=Number(req.body?.quantity),lowAlert=Number(req.body?.lowAlert),purchaseQuantity=Number(req.body?.purchaseQuantity),purchaseTotal=Number(req.body?.purchaseTotal),category=req.body?.category==='equipment'?'equipment':'ingredient';

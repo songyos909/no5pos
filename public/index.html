@@ -249,6 +249,10 @@
 
   <dialog id="cost-inventory-dialog" class="touch-dialog">
     <form method="dialog"><header><div><p class="eyebrow">COST INPUT</p><h2>เพิ่มวัตถุดิบ / บรรจุภัณฑ์</h2></div><button class="close" value="cancel">×</button></header>
+      <section class="inventory-group-picker">
+        <div><b>เพิ่มรายการเป็นชุด</b><small>สร้างรายการมาตรฐานพร้อมกัน และจะไม่ทับข้อมูลสต็อกเดิม</small></div>
+        <div><select id="inventory-group-template"><option value="cold-cup-set">ชุดแก้วเย็น 16oz: แก้ว + ฝา + หลอด + น้ำแข็ง</option><option value="hot-cup-set">ชุดแก้วร้อน: แก้ว + ฝา + ไม้คน</option></select><button type="button" id="inventory-group-add">เพิ่มชุดนี้</button></div>
+      </section>
       <div class="cost-input-grid">
         <label>หมวด<select id="cost-inv-category"><option value="ingredient">วัตถุดิบ</option><option value="equipment">บรรจุภัณฑ์ / อุปกรณ์</option></select></label>
         <label>รหัสรายการ<input id="cost-inv-key" placeholder="coffee_beans"></label>
