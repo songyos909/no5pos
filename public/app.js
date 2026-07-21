@@ -1471,8 +1471,8 @@ function refreshUnitCostPreview() {
 }
 ['#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(selector => { const el=$(selector); if(el) el.oninput=refreshUnitCostPreview; });
 const newInventoryKey=()=>`item_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;
-$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>{ ['#cost-inv-name','#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(s=>{const el=$(s);if(el)el.value='';}); if($('#cost-inv-unit'))$('#cost-inv-unit').value='กรัม'; if($('#cost-inv-key'))$('#cost-inv-key').value=newInventoryKey();if($('#cost-inv-quantity'))$('#cost-inv-quantity').value=0;if($('#cost-inv-low'))$('#cost-inv-low').value=0;refreshUnitCostPreview();$('#cost-inventory-dialog')?.showModal(); });
-$('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{ const stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,materialType=$('#cost-inv-material-type')?.value||'other',quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value); if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกข้อมูลราคาซื้อและปริมาณให้ครบ','error');try{await api(costInventoryEditingKey?`/api/admin/cost-inventory/${stockKey}`:'/api/admin/cost-inventory',{method:costInventoryEditingKey?'PUT':'POST',body:JSON.stringify({stockKey,name,unit,category,materialType,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('บันทึกต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(e.message,'error');} });
+$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>openCostInventory());
+$('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{ const button=$('#cost-inv-save'),stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,materialType=$('#cost-inv-material-type')?.value||'other',quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value); if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกชื่อ หน่วย ปริมาณซื้อ และราคาซื้อให้ครบ','error'); if(!Number.isFinite(quantity)||quantity<0||!Number.isFinite(lowAlert)||lowAlert<0)return showNotice('จำนวนคงเหลือและจุดแจ้งเตือนต้องเป็นเลขศูนย์หรือมากกว่า','error'); try{if(button){button.disabled=true;button.textContent='กำลังบันทึก…';}await api(costInventoryEditingKey?`/api/admin/cost-inventory/${costInventoryEditingKey}`:'/api/admin/cost-inventory',{method:costInventoryEditingKey?'PUT':'POST',body:JSON.stringify({stockKey,name,unit,category,materialType,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('บันทึกราคาซื้อและต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(`บันทึกไม่สำเร็จ: ${e.message}`,'error');}finally{if(button){button.disabled=false;button.textContent='บันทึกวัตถุดิบ';}} });
 
 const topMenuToggle = $('#top-menu-toggle');
 if (topMenuToggle) topMenuToggle.onclick = () => {
@@ -1485,12 +1485,15 @@ let costInventoryEditingKey = null;
 function openCostInventory(item = null) {
   costInventoryEditingKey = item?.stock_key || null;
   const set=(id,value)=>{const el=$(id);if(el)el.value=value ?? '';};
-  set('#cost-inv-key', item?.stock_key || newInventoryKey()); set('#cost-inv-name', item?.name || ''); set('#cost-inv-unit', item?.unit || '');
+  const units={g:'กรัม',gram:'กรัม',grams:'กรัม','กรับ':'กรัม',ml:'มล.','มล':'มล.',pcs:'ชิ้น',pc:'ชิ้น'};
+  const unit=units[String(item?.unit||'').trim().toLowerCase()] || item?.unit || 'กรัม';
+  set('#cost-inv-key', item?.stock_key || newInventoryKey()); set('#cost-inv-name', item?.name || ''); set('#cost-inv-unit', unit);
   set('#cost-inv-category', item?.category || 'ingredient'); set('#cost-inv-quantity', item?.quantity || 0); set('#cost-inv-low', item?.low_alert || 0);
   set('#cost-inv-material-type', item?.material_type || 'other');
   set('#cost-inv-purchase-qty', item?.purchase_quantity || 1); set('#cost-inv-purchase-total', item?.purchase_total || item?.cost_per_unit || 0);
   const key=$('#cost-inv-key'); if(key) key.readOnly=true;
   const title=document.querySelector('#cost-inventory-dialog h2'); if(title) title.textContent=item?'แก้ไขราคาซื้อและต้นทุน':'เพิ่มวัตถุดิบ / บรรจุภัณฑ์';
+  const save=$('#cost-inv-save'); if(save) save.textContent=item?'บันทึกการแก้ไข':'บันทึกวัตถุดิบ';
   refreshUnitCostPreview(); $('#cost-inventory-dialog')?.showModal();
 }
 let memberEditingPhone = null;
