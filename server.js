@@ -123,6 +123,9 @@ if (db.prepare('SELECT count(*) AS n FROM products').get().n === 0) {
 }
 
 const app = express();
+// Extended coffee / matcha menu from the current No.5 Cafe menu board.
+const ensureMenu = db.prepare('INSERT INTO products(name,price,category,emoji,stock_key) SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=?)');
+[['Mocha',70,'coffee','☕','coffee_beans'],['Caramel Macchiato',70,'coffee','☕','coffee_beans'],['Matcha Latte',70,'tea','🍵','tea_leaves'],['Pure Matcha',70,'tea','🍵','tea_leaves']].forEach(x => ensureMenu.run(...x,x[0]));
 // Starter recipes from the supplied 16 oz menu sheet. They remain editable in Product & Recipe settings.
 if (db.prepare('SELECT count(*) AS n FROM recipe_items').get().n === 0) {
   const productIds=db.prepare('SELECT id FROM products ORDER BY id LIMIT 5').all().map(x=>x.id);
