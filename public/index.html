@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <header class="topbar">
@@ -80,6 +80,12 @@
         <div class="member-input-row">
           <input id="member-phone" type="tel" placeholder="ระบุเบอร์โทร เช่น 0951234567">
           <button type="button" id="register-member-btn" style="display:none">สมัครด่วน</button>
+        </div>
+        <div id="member-redeem-row" style="display:none; margin-top:10px; background:#faf8f5; border:1px solid #f1e7de; padding:8px 12px; border-radius:8px; align-items:center; gap:8px;">
+          <input type="checkbox" id="member-use-free-cup" style="width:auto; margin:0; cursor:pointer;">
+          <label for="member-use-free-cup" style="margin:0; font-size:12.5px; font-weight:600; color:#8c5d43; cursor:pointer;">
+            🎁 ใช้สิทธิ์แลกฟรี 1 แก้ว (ใช้ 10 แก้วสะสม)
+          </label>
         </div>
       </div>
       <div class="total">
@@ -153,6 +159,7 @@
           <button type="button" class="admin-tab-btn" data-tab="tab-products">🍕 จัดการเมนู</button>
           <button type="button" class="admin-tab-btn" data-tab="tab-inventory">📦 สต็อกวัตถุดิบ & อุปกรณ์</button>
           <button type="button" class="admin-tab-btn" data-tab="tab-pricing">💰 ราคาออนไลน์</button>
+          <button type="button" class="admin-tab-btn" data-tab="tab-members">👤 ระบบสมาชิก</button>
         </div>
 
         <div class="admin-tab-content">
@@ -193,14 +200,12 @@
             <section class="settings-section">
               <h3>คลังสต็อกวัตถุดิบและอุปกรณ์</h3>
               <div style="display:flex;justify-content:flex-end;margin:0 0 8px;"><button type="button" class="primary-btn" id="btn-add-inventory" style="padding:6px 12px;font-size:12px;">+ เพิ่มรายการสต็อก</button></div>
-              <div class="stock-tabs-nav">
+              <div class="stock-tabs-nav" style="display: flex; margin-bottom: 12px; gap: 4px;">
                 <button type="button" class="stock-tab-btn active" data-stock-cat="all">ทั้งหมด</button>
-                <button type="button" class="stock-tab-btn" data-stock-cat="ingredient">วัตถุดิบ (Raw materials/Liquids)</button>
-                <button type="button" class="stock-tab-btn" data-stock-cat="equipment">อุปกรณ์ (Packaging/Cups/Napkins)</button>
+                <button type="button" class="stock-tab-btn" data-stock-cat="ingredient">วัตถุดิบ</button>
+                <button type="button" class="stock-tab-btn" data-stock-cat="equipment">อุปกรณ์ / บรรจุภัณฑ์</button>
               </div>
-              <button type="button" id="btn-cost-inventory" class="primary-btn" style="margin-top:12px;">เพิ่มวัตถุดิบ / บรรจุภัณฑ์พร้อมราคาซื้อ</button>
-              <div id="cost-inventory-list" class="cost-inventory-list"></div>
-              <div id="inventory" class="setting-list" style="margin-top:12px;"></div>
+              <div id="inventory" class="setting-list" style="margin-top:12px; max-height:380px; overflow-y:auto;"></div>
             </section>
           </div>
 
@@ -222,6 +227,19 @@
               <h3>ต้นทุนต่อแก้วและกำไรขั้นต้น</h3>
               <p class="hint">คำนวณจากปริมาณวัตถุดิบในสูตร × ราคาต่อหน่วย สามารถแก้ไขต้นทุนและสูตรได้จากแท็บสต็อก/เมนู</p>
               <div id="costing-grid" class="channel-pricing-grid"></div>
+            </section>
+          </div>
+
+          <!-- Tab 5: Member Management -->
+          <div id="tab-members" class="admin-tab-panel">
+            <section class="settings-section">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="margin:0;">รายชื่อสมาชิกในระบบ</h3>
+                <button type="button" class="primary-btn" id="btn-add-member" style="padding:6px 12px; font-size:12.5px;">+ เพิ่มสมาชิกใหม่</button>
+              </div>
+              <div id="admin-members-list" class="admin-products-list" style="max-height:350px; overflow-y:auto; border:1px solid #f1e7de; border-radius:10px; padding:10px;">
+                <!-- Members list will be loaded here -->
+              </div>
             </section>
           </div>
         </div>
@@ -517,6 +535,38 @@
     </div>
   </dialog>
 
+  <!-- Member Edit Dialog -->
+  <dialog id="member-edit-dialog" class="touch-dialog" style="width: min(400px, 90vw);">
+    <form method="dialog">
+      <header>
+        <div>
+          <p class="eyebrow">MEMBER EDITOR</p>
+          <h2 id="member-edit-title">จัดการข้อมูลสมาชิก</h2>
+        </div>
+        <button class="close" type="button" aria-label="ปิด" onclick="document.getElementById('member-edit-dialog').close()">×</button>
+      </header>
+      <div style="padding: 20px;">
+        <div style="margin-bottom: 12px;">
+          <label style="font-size:11.5px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">เบอร์โทรศัพท์ (ใช้เป็นคีย์หลัก)</label>
+          <input id="edit-member-phone" type="tel" placeholder="เช่น 0951234567" style="width:100%; min-height:40px; padding:8px; border:1px solid #dfcec0; border-radius:8px;">
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label style="font-size:11.5px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">ชื่อสมาชิก</label>
+          <input id="edit-member-name" placeholder="ชื่อ-นามสกุล" style="width:100%; min-height:40px; padding:8px; border:1px solid #dfcec0; border-radius:8px;">
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label style="font-size:11.5px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">จำนวนแก้วสะสม (แต้ม)</label>
+          <input id="edit-member-points" type="number" min="0" value="0" style="width:100%; min-height:40px; padding:8px; border:1px solid #dfcec0; border-radius:8px;">
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; border-top:1px solid #f1e7de; padding-top:16px;">
+          <button type="button" id="btn-delete-member" class="secondary-btn" style="background:#f8d7da; color:#721c24; border-color:#f5c6cb; font-weight:700; font-size:12.5px; padding:8px 12px; border-radius:6px; cursor:pointer;">🗑️ ลบสมาชิก</button>
+          <button type="button" id="btn-save-member" class="primary" style="width:auto; padding:10px 20px; font-size:13px; font-weight:600;">บันทึกข้อมูล</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="modifier-dialog" class="touch-dialog modifier-dialog">
     <form method="dialog"><header><div><p class="eyebrow">CUSTOMIZE DRINK</p><h2 id="modifier-title">เลือกตัวเลือก</h2></div><button class="close" value="cancel">×</button></header><div id="modifier-options" class="modifier-options"></div><footer class="touch-dialog-footer"><span id="modifier-price"></span><button type="button" class="primary" id="modifier-confirm-btn">เพิ่มลงตะกร้า</button></footer></form>
   </dialog>
@@ -526,7 +576,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="/firebase-client.js"></script>
-  <script src="/app.js"></script>
+  <script src="./firebase-client.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
