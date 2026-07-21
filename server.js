@@ -123,9 +123,11 @@ if (db.prepare('SELECT count(*) AS n FROM products').get().n === 0) {
 }
 
 const app = express();
-// Extended coffee / matcha menu from the current No.5 Cafe menu board.
+// Keep the No.5 Cafe menu board complete even when an older local database already exists.
 const ensureMenu = db.prepare('INSERT INTO products(name,price,category,emoji,stock_key) SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=?)');
-[['Mocha',70,'coffee','☕','coffee_beans'],['Caramel Macchiato',70,'coffee','☕','coffee_beans'],['Matcha Latte',70,'tea','🍵','tea_leaves'],['Pure Matcha',70,'tea','🍵','tea_leaves']].forEach(x => ensureMenu.run(...x,x[0]));
+[['Espresso (Hot)',45,'coffee','☕','coffee_beans'],['Iced Espresso',55,'coffee','🧊','coffee_beans'],['Americano',50,'coffee','☕','coffee_beans'],['Latte',60,'coffee','☕','milk'],['Cappuccino',60,'coffee','☕','milk'],['Mocha',70,'coffee','☕','coffee_beans'],['Caramel Macchiato',70,'coffee','☕','coffee_beans'],['Matcha Latte',70,'tea','🍵','tea_leaves'],['Pure Matcha',70,'tea','🍵','tea_leaves']].forEach(x => ensureMenu.run(...x,x[0]));
+db.prepare("UPDATE products SET name='Americano' WHERE name='Amaricano' AND NOT EXISTS (SELECT 1 FROM products WHERE name='Americano')").run();
+db.prepare("UPDATE products SET active=0 WHERE name='Amaricano' AND EXISTS (SELECT 1 FROM products WHERE name='Americano')").run();
 // Starter recipes from the supplied 16 oz menu sheet. They remain editable in Product & Recipe settings.
 if (db.prepare('SELECT count(*) AS n FROM recipe_items').get().n === 0) {
   const productIds=db.prepare('SELECT id FROM products ORDER BY id LIMIT 5').all().map(x=>x.id);
@@ -187,6 +189,7 @@ app.get('/api/orders', admin, (req,res) => res.json(db.prepare('SELECT * FROM or
 app.get('/api/reports/today', (_,res) => res.json(db.prepare("SELECT count(*) orders, coalesce(sum(total),0) sales FROM orders WHERE date(created_at,'localtime')=date('now','localtime')").get()));
 app.get('/api/kds', (_,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); res.json(db.prepare("SELECT oi.id,oi.name,oi.quantity,oi.options_json,oi.status,o.id order_id,o.created_at FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE date(o.created_at,'localtime')=date('now','localtime') ORDER BY o.created_at DESC LIMIT 100").all()); });
 app.put('/api/kds/items/:id/status', (req,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); const status=req.body?.status; if(!['pending','cooking','completed'].includes(status)) return fail(res,'สถานะไม่ถูกต้อง'); const r=db.prepare('UPDATE order_items SET status=? WHERE id=?').run(status,req.params.id); return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการคิวชง',404); });
+app.delete('/api/kds/completed', (_,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); const r=db.prepare("DELETE FROM order_items WHERE status='completed'").run(); res.json({ok:true,cleared:r.changes}); });
 app.get('/api/members', (_,res) => { if(!enabled('members')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันสมาชิก',403); res.json(db.prepare('SELECT phone,name,points FROM members ORDER BY points DESC,name LIMIT 100').all()); });
 app.get('/api/members/:phone', (req,res) => { if(!enabled('members')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันสมาชิก',403); const phone=String(req.params.phone||'').replace(/\D/g,''); const member=db.prepare('SELECT phone,name,points FROM members WHERE phone=?').get(phone); return member?res.json(member):fail(res,'ไม่พบสมาชิก',404); });
 app.post('/api/members', (req,res) => { if(!enabled('members')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันสมาชิก',403); const phone=String(req.body?.phone||'').replace(/\D/g,''), name=String(req.body?.name||'').trim(); if(phone.length<9||!name)return fail(res,'กรอกชื่อและเบอร์โทรให้ถูกต้อง'); db.prepare('INSERT INTO members(phone,name,points) VALUES (?,?,0) ON CONFLICT(phone) DO UPDATE SET name=excluded.name').run(phone,name);res.status(201).json({ok:true}); });
@@ -219,7 +222,7 @@ app.post('/api/orders', (req,res) => {
         const product=findProduct.get(Number(row.productId)), qty=Number(row.quantity);
         if(!product || !product.active || !Number.isInteger(qty) || qty<1 || qty>99) throw Error('Invalid order item');
         const raw=row.options||{};
-        const options={temperature:['hot','iced','blended'].includes(raw.temperature)?raw.temperature:'iced',sweetness:[0,25,50,100].includes(Number(raw.sweetness))?Number(raw.sweetness):100,milk:['fresh','oat','soy'].includes(raw.milk)?raw.milk:'fresh',toppings:Array.isArray(raw.toppings)?raw.toppings.filter(x=>['extraShot','whippedCream'].includes(x)):[]};
+        const options={temperature:['hot','iced','blended'].includes(raw.temperature)?raw.temperature:'iced',sweetness:[0,50,100].includes(Number(raw.sweetness))?Number(raw.sweetness):100,milk:['fresh','oat','soy'].includes(raw.milk)?raw.milk:'fresh',toppings:Array.isArray(raw.toppings)?raw.toppings.filter(x=>['extraShot','whippedCream'].includes(x)):[]};
         const unitPrice=Number(product.price)+(options.milk==='oat'?15:options.milk==='soy'?10:0)+(options.toppings.includes('extraShot')?15:0)+(options.toppings.includes('whippedCream')?10:0);
         subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
       }
@@ -373,6 +376,14 @@ app.get('/api/reports/transactions', (_, res) => {
 });
 
 app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare('SELECT feature_key,enabled FROM feature_settings').all()}));
+app.post('/api/admin/cost-inventory/batch', admin, (req,res) => {
+  const items=Array.isArray(req.body?.items)?req.body.items:[];
+  if(!items.length)return fail(res,'ไม่พบรายการที่ต้องการเพิ่ม');
+  const insert=db.prepare('INSERT INTO inventory(stock_key,name,unit,quantity,low_alert,category,purchase_quantity,purchase_total,cost_per_unit) VALUES (?,?,?,?,?,?,?,?,?)');
+  const exists=db.prepare('SELECT 1 FROM inventory WHERE stock_key=?'); let added=0,existing=0;
+  db.transaction(()=>items.forEach(raw=>{const stockKey=String(raw.stockKey||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');if(!stockKey||!raw.name||!raw.unit)return;if(exists.get(stockKey)){existing++;return;}const purchaseQuantity=Math.max(.01,Number(raw.purchaseQuantity)||1),purchaseTotal=Math.max(0,Number(raw.purchaseTotal)||0);insert.run(stockKey,String(raw.name),String(raw.unit),Math.max(0,Number(raw.quantity)||0),Math.max(0,Number(raw.lowAlert)||0),raw.category==='equipment'?'equipment':'ingredient',purchaseQuantity,purchaseTotal,purchaseTotal/purchaseQuantity);added++;}))();
+  res.status(201).json({ok:true,added,existing});
+});
 app.post('/api/admin/cost-inventory', admin, (req,res) => {
   const stockKey=String(req.body?.stockKey||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');
   const name=String(req.body?.name||'').trim(),unit=String(req.body?.unit||'').trim(),quantity=Number(req.body?.quantity),lowAlert=Number(req.body?.lowAlert),purchaseQuantity=Number(req.body?.purchaseQuantity),purchaseTotal=Number(req.body?.purchaseTotal),category=req.body?.category==='equipment'?'equipment':'ingredient';

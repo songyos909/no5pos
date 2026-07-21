@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#53372a">
-  <title>Caffé Aroma POS</title>
+  <title>No.5 Cafe POS</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -15,8 +15,8 @@
     <div class="brand">
       <span class="brand-icon">☕</span>
       <div>
-        <h1>Caffé Aroma</h1>
-        <p>ระบบขายหน้าร้านบาริสต้าเดี่ยว</p>
+        <h1>No.5 Cafe</h1>
+        <p>5 คาเฟ่ · ระบบขายหน้าร้าน</p>
       </div>
     </div>
     <div class="top-actions">
@@ -249,6 +249,10 @@
 
   <dialog id="cost-inventory-dialog" class="touch-dialog">
     <form method="dialog"><header><div><p class="eyebrow">COST INPUT</p><h2>เพิ่มวัตถุดิบ / บรรจุภัณฑ์</h2></div><button class="close" value="cancel">×</button></header>
+      <section class="inventory-group-picker">
+        <div><b>เพิ่มรายการเป็นชุด</b><small>สร้างรายการมาตรฐานพร้อมกัน และจะไม่ทับข้อมูลสต็อกเดิม</small></div>
+        <div><select id="inventory-group-template"><option value="cold-cup-set">ชุดแก้วเย็น 16oz: แก้ว + ฝา + หลอด + น้ำแข็ง</option><option value="hot-cup-set">ชุดแก้วร้อน: แก้ว + ฝา + ไม้คน</option></select><button type="button" id="inventory-group-add">เพิ่มชุดนี้</button></div>
+      </section>
       <div class="cost-input-grid">
         <label>หมวด<select id="cost-inv-category"><option value="ingredient">วัตถุดิบ</option><option value="equipment">บรรจุภัณฑ์ / อุปกรณ์</option></select></label>
         <label>รหัสรายการ<input id="cost-inv-key" placeholder="coffee_beans"></label>
@@ -506,7 +510,7 @@
   <dialog id="receipt-dialog" style="width: min(340px, 92vw); border-radius: 12px;">
     <div class="receipt-container" style="padding: 24px 20px; font-family: Courier, monospace; background:#fff; color:#000; font-size: 12px; line-height:1.5;">
       <div style="text-align:center; margin-bottom:14px;">
-        <h2 style="margin:0; font-size:18px; font-weight:700;">Caffé Aroma</h2>
+        <h2 style="margin:0; font-size:18px; font-weight:700;">No.5 Cafe</h2>
         <p style="margin:2px 0 0; font-size:10px;">บาริสต้าเดี่ยว ดูแลหน้าร้านครบวงจร</p>
         <div style="border-top:1px dashed #000; margin:8px 0 4px;"></div>
         <p style="margin:0; text-align:left;" id="receipt-date">วันที่: 19/07/2026 00:30</p>
@@ -526,7 +530,7 @@
         <div style="display:flex; justify-content:space-between; font-style:italic;" id="receipt-member-row"><span>คะแนนสมาชิก:</span><span id="receipt-member-points" style="font-weight:600;">+0 คะแนน</span></div>
       </div>
       <div style="text-align:center; border-top:1px dashed #000; padding-top:10px; font-size:10px;">
-        <p style="margin:0;">ขอบคุณที่ใช้บริการ Caffé Aroma ครับ/ค่ะ</p>
+        <p style="margin:0;">ขอบคุณที่ใช้บริการ No.5 Cafe ครับ/ค่ะ</p>
       </div>
       <div style="margin-top:20px; display:flex; gap:6px;" class="no-print">
         <button type="button" onclick="window.print()" style="flex:1; padding:8px 0; font-family:Prompt,sans-serif; background:#53372a; color:#fff; border:0; border-radius:6px; cursor:pointer; font-weight:600; font-size:11px;">พิมพ์สลิป</button>
@@ -570,7 +574,7 @@
   <dialog id="modifier-dialog" class="touch-dialog modifier-dialog">
     <form method="dialog"><header><div><p class="eyebrow">CUSTOMIZE DRINK</p><h2 id="modifier-title">เลือกตัวเลือก</h2></div><button class="close" value="cancel">×</button></header><div id="modifier-options" class="modifier-options"></div><footer class="touch-dialog-footer"><span id="modifier-price"></span><button type="button" class="primary" id="modifier-confirm-btn">เพิ่มลงตะกร้า</button></footer></form>
   </dialog>
-  <dialog id="kds-dialog" class="kds-dialog"><div class="kds-shell"><header><div><p class="eyebrow">KITCHEN DISPLAY SYSTEM</p><h2>คิวชงกาแฟ</h2></div><button class="close" id="kds-close-btn" type="button">×</button></header><div id="kds-grid" class="kds-grid"></div></div></dialog>
+  <dialog id="kds-dialog" class="kds-dialog"><div class="kds-shell"><header><div><p class="eyebrow">KITCHEN DISPLAY SYSTEM</p><h2>คิวชงกาแฟ</h2></div><div style="display:flex;gap:8px;align-items:center;"><button id="kds-clear-completed-btn" type="button" class="secondary-btn">ล้างคิวเสิร์ฟแล้ว</button><button class="close" id="kds-close-btn" type="button">×</button></div></header><div id="kds-grid" class="kds-grid"></div></div></dialog>
   <dialog id="numpad-dialog" class="touch-dialog numpad-dialog"><form method="dialog"><header><h2 id="numpad-title">กรอกข้อมูล</h2><button class="close" value="cancel">×</button></header><output id="numpad-value" class="numpad-value"></output><div id="numpad-keys" class="numpad-keys"></div><footer class="touch-dialog-footer"><button type="button" id="numpad-clear-btn">ล้าง</button><button type="button" class="primary" id="numpad-confirm-btn">ยืนยัน</button></footer></form></dialog>
   <dialog id="firebase-login-dialog" class="touch-dialog"><form method="dialog"><header><div><p class="eyebrow">NO.5 POS</p><h2>เข้าสู่ระบบร้าน</h2></div></header><div class="firebase-login-form"><label>อีเมล<input id="firebase-email" type="email" value="songyos909@gmail.com" autocomplete="username"></label><label>รหัสผ่าน Firebase<input id="firebase-password" type="password" autocomplete="current-password"></label><p id="firebase-login-error"></p></div><footer class="touch-dialog-footer"><span></span><button type="button" class="primary" id="firebase-login-btn">เข้าสู่ระบบ</button></footer></form></dialog>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
