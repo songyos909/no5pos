@@ -344,10 +344,12 @@
 
   <dialog id="recipe-selector-dialog" class="touch-dialog recipe-selector-dialog">
     <form method="dialog"><header><div><p class="eyebrow">RECIPE STOCK SELECTOR</p><h2>เลือกสิ่งที่ต้องหักสต็อก</h2></div><button class="close" value="cancel">×</button></header>
-      <p class="hint">ติ๊กเลือกรายการได้หลายรายการ ปรับปริมาณต่อ 1 แก้ว แล้วกดบันทึกครั้งเดียว</p>
-      <select id="recipe-material-filter" class="recipe-material-filter"><option value="all">ทุกประเภทวัตถุดิบและอุปกรณ์</option><option value="coffee_beans">เมล็ดกาแฟ</option><option value="cocoa">โกโก้</option><option value="tea">ชา</option><option value="milk">นม</option><option value="sweetness">ความหวาน</option><option value="syrup">ไซรัป</option><option value="other">อื่น ๆ</option><option value="equipment">อุปกรณ์ / บรรจุภัณฑ์</option></select>
-      <div id="recipe-selector-list" class="recipe-selector-list"></div>
-      <footer class="touch-dialog-footer"><span id="recipe-selector-count"></span><button type="button" class="primary" id="recipe-selector-apply">ใช้รายการที่เลือก</button></footer>
+      <p class="hint">ค้นหา เลือก และปรับปริมาณต่อ 1 แก้วได้จากหน้าจอเดียว</p>
+      <div class="recipe-selector-layout">
+        <section class="recipe-library-pane"><div class="recipe-selector-tools"><input id="recipe-stock-search" type="search" placeholder="ค้นหาวัตถุดิบหรือบรรจุภัณฑ์"><select id="recipe-material-filter"><option value="all">ทุกประเภท</option><option value="coffee_beans">เมล็ดกาแฟ</option><option value="cocoa">โกโก้</option><option value="tea">ชา</option><option value="milk">นม</option><option value="sweetness">ความหวาน</option><option value="syrup">ไซรัป</option><option value="other">อื่น ๆ</option><option value="equipment">อุปกรณ์ / บรรจุภัณฑ์</option></select></div><div id="recipe-selector-list" class="recipe-selector-list"></div></section>
+        <aside class="recipe-selected-pane"><div class="recipe-selected-heading"><div><small>SELECTED ITEMS</small><h3>รายการที่จะหักสต็อก</h3></div><b id="recipe-selector-count">0 รายการ</b></div><div id="recipe-selected-list" class="recipe-selected-list"></div><div class="recipe-selected-total"><span>ต้นทุนรวมต่อแก้ว</span><strong id="recipe-selected-cost">฿0.00</strong></div></aside>
+      </div>
+      <footer class="touch-dialog-footer"><span>ตรวจสอบรายการและต้นทุนก่อนบันทึก</span><button type="button" class="primary" id="recipe-selector-apply">ใช้รายการที่เลือก</button></footer>
     </form>
   </dialog>
 

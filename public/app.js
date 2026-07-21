@@ -25,6 +25,7 @@ let currentEditRecipeItems = [];
 // ── Utilities ─────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
 const money = n => `฿${Number(n || 0).toFixed(2)}`;
+const displayName = item => item?.name_th || item?.name || '';
 
 function showNotice(msg, type = 'success') {
   const el = $('#notice');
@@ -53,10 +54,10 @@ async function load() {
 
   try {
     const boot = await api('/api/bootstrap');
-    state.products = boot.products || [];
+    state.products = (boot.products || []).map(item => ({ ...item, name: displayName(item) }));
     state.features = boot.features || {};
     state.categories = boot.categories || [];
-    state.inventory = boot.inventory || [];
+    state.inventory = (boot.inventory || []).map(item => ({ ...item, name: displayName(item) }));
     state.channels = boot.channels || [];
     state.cart = savedCart;
     state.selectedCategory = savedCategory;
@@ -64,7 +65,7 @@ async function load() {
 
     // Fetch recipes only if feature enabled (fallback to empty on 403)
     try {
-      state.recipesData = await api('/api/recipes');
+      state.recipesData = (await api('/api/recipes')).map(recipe => ({ ...recipe, name: displayName(recipe), items: (recipe.items || []).map(item => ({ ...item, name: displayName(item) })) }));
     } catch {
       state.recipesData = [];
     }
@@ -1332,7 +1333,7 @@ document.querySelectorAll('#product-edit-dialog .close').forEach(b => { b.onclic
 
 let recipeSelectorDraft = [];
 function setRecipeSelectorItem(stockKey, quantity) { const idx=recipeSelectorDraft.findIndex(x=>x.stock_key===stockKey); if(quantity>0){if(idx>=0)recipeSelectorDraft[idx].quantity=quantity;else recipeSelectorDraft.push({stock_key:stockKey,quantity});}else if(idx>=0)recipeSelectorDraft.splice(idx,1); }
-function renderRecipeSelector() {
+function legacyRenderRecipeSelector() {
   const root=$('#recipe-selector-list'); if(!root)return; root.replaceChildren();
   const filter=$('#recipe-material-filter')?.value||'all',materialLabels={coffee_beans:'เมล็ดกาแฟ',cocoa:'โกโก้',tea:'ชา',milk:'นม',sweetness:'ความหวาน',syrup:'ไซรัป',other:'อื่น ๆ',equipment:'อุปกรณ์ / บรรจุภัณฑ์'};
   Object.entries(materialLabels).filter(([type])=>filter==='all'||filter===type).forEach(([type,title])=>{
@@ -1345,6 +1346,57 @@ function renderRecipeSelector() {
 $('#btn-open-recipe-selector') && ($('#btn-open-recipe-selector').onclick=()=>{recipeSelectorDraft=currentEditRecipeItems.map(x=>({stock_key:x.stock_key,quantity:Number(x.quantity)}));renderRecipeSelector();$('#recipe-selector-dialog')?.showModal();});
 $('#recipe-material-filter') && ($('#recipe-material-filter').onchange=renderRecipeSelector);
 $('#recipe-selector-apply') && ($('#recipe-selector-apply').onclick=()=>{currentEditRecipeItems=recipeSelectorDraft.flatMap(x=>{const stock=state.inventory.find(item=>item.stock_key===x.stock_key);return stock?[{stock_key:stock.stock_key,quantity:Number(x.quantity),name:stock.name,unit:stock.unit,cost_per_unit:stock.cost_per_unit}]:[];});$('#recipe-selector-dialog')?.close();renderEditRecipeItems();});
+
+function renderRecipeSelected() {
+  const root = $('#recipe-selected-list'), count = $('#recipe-selector-count'), total = $('#recipe-selected-cost');
+  if (!root) return;
+  root.replaceChildren();
+  const selected = recipeSelectorDraft.map(item => ({ ...item, stock: state.inventory.find(stock => stock.stock_key === item.stock_key) })).filter(item => item.stock);
+  const directCost = selected.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.stock.cost_per_unit || 0), 0);
+  if (count) count.textContent = `${selected.length} รายการ`;
+  if (total) total.textContent = money(directCost);
+  if (!selected.length) { root.innerHTML = '<div class="recipe-selected-empty"><strong>ยังไม่ได้เลือกรายการ</strong><span>เลือกรายการจากด้านซ้าย แล้วปรับปริมาณที่ใช้ต่อแก้วได้ที่นี่</span></div>'; return; }
+  selected.forEach(({ stock, quantity }) => {
+    const row = document.createElement('article'); row.className = 'recipe-selected-row';
+    const info = document.createElement('div'); info.className = 'recipe-selected-info';
+    info.innerHTML = `<strong>${displayName(stock)}</strong><small>${money(stock.cost_per_unit || 0)}/${stock.unit} · ต้นทุน ${money(Number(quantity) * Number(stock.cost_per_unit || 0))}</small>`;
+    const controls = document.createElement('div'); controls.className = 'recipe-quantity-controls';
+    const minus = document.createElement('button'); minus.type = 'button'; minus.textContent = '−';
+    const input = document.createElement('input'); input.type = 'number'; input.min = '0.01'; input.step = '0.01'; input.value = quantity;
+    const unit = document.createElement('span'); unit.textContent = stock.unit;
+    const plus = document.createElement('button'); plus.type = 'button'; plus.textContent = '+';
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'recipe-remove-item'; remove.textContent = '×';
+    const update = value => { setRecipeSelectorItem(stock.stock_key, Math.max(0.01, Number(value) || 0.01)); renderRecipeSelector(); };
+    minus.onclick = () => update(Math.max(0.01, Number(input.value) - 1)); plus.onclick = () => update(Number(input.value) + 1);
+    input.onchange = () => update(input.value); remove.onclick = () => { setRecipeSelectorItem(stock.stock_key, 0); renderRecipeSelector(); };
+    controls.append(minus, input, unit, plus, remove); row.append(info, controls); root.append(row);
+  });
+}
+
+function renderRecipeSelector() {
+  const root = $('#recipe-selector-list'); if (!root) return; root.replaceChildren();
+  const filter = $('#recipe-material-filter')?.value || 'all';
+  const query = ($('#recipe-stock-search')?.value || '').trim().toLowerCase();
+  const labels = { coffee_beans:'เมล็ดกาแฟ', cocoa:'โกโก้', tea:'ชา', milk:'นม', sweetness:'ความหวาน', syrup:'ไซรัป', other:'อื่น ๆ', equipment:'อุปกรณ์ / บรรจุภัณฑ์' };
+  Object.entries(labels).filter(([type]) => filter === 'all' || filter === type).forEach(([type, title]) => {
+    const items = state.inventory.filter(stock => (type === 'equipment' ? stock.category === 'equipment' : stock.category !== 'equipment' && (stock.material_type || 'other') === type) && (!query || `${displayName(stock)} ${stock.stock_key}`.toLowerCase().includes(query)));
+    if (!items.length) return;
+    const group = document.createElement('section'); group.className = 'recipe-selector-group'; group.innerHTML = `<h3>${title}</h3>`;
+    items.forEach(stock => {
+      const selected = recipeSelectorDraft.some(item => item.stock_key === stock.stock_key);
+      const row = document.createElement('button'); row.type = 'button'; row.className = `recipe-selector-row${selected ? ' is-selected' : ''}`;
+      row.innerHTML = `<span class="recipe-selector-icon">${selected ? '✓' : '+'}</span><span><strong>${displayName(stock)}</strong><small>${stock.stock_key} · ${money(stock.cost_per_unit || 0)}/${stock.unit}</small></span><em>${selected ? 'เลือกแล้ว' : 'เลือก'}</em>`;
+      row.onclick = () => { setRecipeSelectorItem(stock.stock_key, selected ? 0 : 1); renderRecipeSelector(); }; group.append(row);
+    }); root.append(group);
+  });
+  if (!root.children.length) root.innerHTML = '<div class="recipe-library-empty">ไม่พบรายการที่ตรงกับการค้นหา</div>';
+  renderRecipeSelected();
+}
+
+$('#btn-open-recipe-selector') && ($('#btn-open-recipe-selector').onclick = () => { recipeSelectorDraft = currentEditRecipeItems.map(item => ({ stock_key:item.stock_key, quantity:Number(item.quantity) })); renderRecipeSelector(); $('#recipe-selector-dialog')?.showModal(); });
+$('#recipe-material-filter') && ($('#recipe-material-filter').onchange = renderRecipeSelector);
+$('#recipe-stock-search') && ($('#recipe-stock-search').oninput = renderRecipeSelector);
+$('#recipe-selector-apply') && ($('#recipe-selector-apply').onclick = () => { currentEditRecipeItems = recipeSelectorDraft.flatMap(item => { const stock = state.inventory.find(entry => entry.stock_key === item.stock_key); return stock ? [{ stock_key:stock.stock_key, quantity:Number(item.quantity), name:displayName(stock), unit:stock.unit, cost_per_unit:stock.cost_per_unit }] : []; }); $('#recipe-selector-dialog')?.close(); renderEditRecipeItems(); });
 
 // Save product & recipe button
 const saveProductBtn = $('#btn-save-product-edit');

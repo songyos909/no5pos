@@ -84,7 +84,17 @@ try { db.prepare("SELECT purchase_quantity FROM inventory LIMIT 1").get(); }
 catch { db.exec("ALTER TABLE inventory ADD COLUMN purchase_quantity REAL NOT NULL DEFAULT 0; ALTER TABLE inventory ADD COLUMN purchase_total REAL NOT NULL DEFAULT 0"); }
 try { db.prepare("SELECT material_type FROM inventory LIMIT 1").get(); }
 catch { db.exec("ALTER TABLE inventory ADD COLUMN material_type TEXT NOT NULL DEFAULT 'other'"); }
+try { db.prepare("SELECT name_th FROM inventory LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE inventory ADD COLUMN name_th TEXT"); }
+try { db.prepare("SELECT name_th FROM products LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE products ADD COLUMN name_th TEXT"); }
 db.exec("UPDATE inventory SET material_type='coffee_beans' WHERE stock_key='coffee_beans'; UPDATE inventory SET material_type='cocoa' WHERE stock_key='cocoa_powder'; UPDATE inventory SET material_type='tea' WHERE stock_key='tea_leaves'; UPDATE inventory SET material_type='milk' WHERE stock_key IN ('milk','condensed_milk','evaporated_milk'); UPDATE inventory SET material_type='syrup' WHERE stock_key LIKE '%syrup%';");
+const thaiInventoryNames = { coffee_beans:'เมล็ดกาแฟ', condensed_milk:'นมข้นหวาน', evaporated_milk:'นมข้นจืด', cocoa_powder:'ผงโกโก้', caramel_syrup:'ไซรัปคาราเมล', ice:'น้ำแข็ง', milk:'นมสด', tea_leaves:'ใบชา', croissant:'ครัวซองต์', cup_hot:'แก้วร้อน 8 ออนซ์', cup_cold:'แก้วเย็น 16 ออนซ์', straw:'หลอดพลาสติก' };
+const thaiProductNames = { 'Espresso (Hot)':'เอสเปรสโซ่ร้อน', 'Iced Espresso':'เอสเปรสโซ่เย็น', Americano:'อเมริกาโน่เย็น', Latte:'ลาเต้เย็น', Cappuccino:'คาปูชิโน่เย็น', Mocha:'มอคค่าเย็น', 'Caramel Macchiato':'คาราเมลมัคคิอาโต', 'Matcha Latte':'มัทฉะลาเต้', 'Pure Matcha':'มัทฉะแท้ 100%' };
+const setThaiInventory = db.prepare("UPDATE inventory SET name_th=? WHERE stock_key=? AND (name_th IS NULL OR name_th='')");
+Object.entries(thaiInventoryNames).forEach(([key,name]) => setThaiInventory.run(name,key));
+const setThaiProduct = db.prepare("UPDATE products SET name_th=? WHERE name=? AND (name_th IS NULL OR name_th='')");
+Object.entries(thaiProductNames).forEach(([name,thai]) => setThaiProduct.run(thai,name));
 try { db.prepare("SELECT target_margin FROM products LIMIT 1").get(); }
 catch { db.exec("ALTER TABLE products ADD COLUMN target_margin REAL NOT NULL DEFAULT 0.65"); }
 
