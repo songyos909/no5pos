@@ -1,6 +1,0 @@
-'use strict';
-const fallback=[['เอสเปรสโซ่ร้อน','Espresso (Hot)',45],['เอสเปรสโซ่เย็น','Iced Espresso',55],['อเมริกาโน่เย็น','Americano',50],['ลาเต้เย็น','Latte',60],['คาปูชิโน่เย็น','Cappuccino',60],['มอคค่าเย็น','Mocha',70],['คาราเมลมัคคิอาโต','Caramel Macchiato',70],['มัทฉะลาเต้','Matcha Latte',70],['มัทฉะแท้ 100%','Pure Matcha',70]];
-const money=n=>`${Number(n||0).toFixed(0)} บ.`;
-function draw(rows,fromCache=false){const root=document.querySelector('#menu-list');root.replaceChildren(...rows.map(item=>{const el=document.createElement('article');el.className='board-item';el.innerHTML=`<div><strong>${item.th}</strong><small>${item.en}</small></div><b>${money(item.price)}</b>`;return el;}));document.querySelector('#board-status').textContent=fromCache?'แสดงเมนูที่บันทึกไว้':'อัปเดตจากระบบร้านแล้ว';}
-draw(fallback,true);
-(async()=>{try{if(window.firebaseReady)await window.firebaseReady;const get=window.firebaseApi?await window.firebaseApi('/api/bootstrap'):await fetch('/api/bootstrap').then(r=>r.json());const rows=(get.products||[]).map(p=>({th:p.name_th||p.name,en:p.original_name||p.name,price:p.price}));if(rows.length){localStorage.setItem('no5-menu-board',JSON.stringify(rows));draw(rows);}}catch{try{const cached=JSON.parse(localStorage.getItem('no5-menu-board'));if(cached?.length)draw(cached,true);}catch{}}})();

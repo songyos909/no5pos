@@ -5,7 +5,6 @@
 ## การใช้งานออนไลน์
 
 - POS: `https://songyos909.github.io/no5pos/`
-- Menu Board: `https://songyos909.github.io/no5pos/menu-board.html`
 
 GitHub Pages ใช้ Firebase Authentication และ Cloud Firestore เป็นฐานข้อมูลออนไลน์ ผู้ดูแลต้องลงชื่อเข้าใช้บัญชี Firebase ที่ได้รับอนุญาตก่อนใช้งานหรือแก้ไขข้อมูล
 
