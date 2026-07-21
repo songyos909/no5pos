@@ -148,6 +148,12 @@ function openAdminWindow(tab, title) {
   if (panel) panel.classList.add('active-panel');
   const heading = document.querySelector('#settings header h2');
   if (heading) heading.textContent = title;
+  if (window.useFirebaseStore) {
+    const auth = $('#auth'); const admin = $('#admin');
+    if (auth) auth.hidden = true;
+    if (admin) admin.hidden = false;
+    adminLoad().catch(e => showNotice(e.message, 'error'));
+  }
   $('#settings')?.showModal();
 }
 
@@ -957,6 +963,7 @@ if (refreshBtn) refreshBtn.onclick = adminLoad;
 const settingsBtn = $('#settingsBtn');
 if (settingsBtn) {
   settingsBtn.onclick = () => {
+    if (window.useFirebaseStore) { openAdminWindow('tab-features', 'จัดการร้าน'); return; }
     const tabBtn = document.querySelector('.admin-tab-btn[data-tab="tab-features"]');
     if (tabBtn) tabBtn.click();
     $('#settings')?.showModal();
