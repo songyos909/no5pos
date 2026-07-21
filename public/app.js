@@ -204,12 +204,8 @@ function getStockStatus(product) {
       if (stock.quantity <= 0) isOut = true;
       else if (stock.quantity <= stock.low_alert) isLow = true;
     }
-  } else if (product.stock_key) {
-    const stock = state.inventory.find(x => x.stock_key === product.stock_key);
-    if (stock) {
-      if (stock.quantity <= 0) isOut = true;
-      else if (stock.quantity <= stock.low_alert) isLow = true;
-    }
+  } else {
+    return 'missing-recipe';
   }
   return isOut ? 'out' : isLow ? 'low' : 'ok';
 }
@@ -243,8 +239,8 @@ function renderProducts() {
 
     const card = document.createElement('button');
     card.type = 'button';
-    card.className = 'product' + (status === 'out' ? ' product-out' : '');
-    card.disabled = status === 'out';
+    card.className = 'product' + (status === 'out' || status === 'missing-recipe' ? ' product-out' : '');
+    card.disabled = status === 'out' || status === 'missing-recipe';
 
     const emoji = document.createElement('span');
     emoji.textContent = p.emoji;
@@ -265,6 +261,9 @@ function renderProducts() {
       badge.className = 'stock-badge empty';
       badge.textContent = 'หมด';
       card.append(badge);
+    }
+    if (status === 'missing-recipe') {
+      const badge = document.createElement('span'); badge.className = 'stock-badge empty'; badge.textContent = 'ยังไม่มีสูตร'; card.append(badge);
     }
 
     let pressTimer, longPressed = false;
@@ -325,11 +324,8 @@ function canAddToCart(product, deltaQty = 1) {
         return { ok: false, msg: `สต็อก "${stock.name}" ไม่เพียงพอ (มี ${stock.quantity} ${stock.unit})` };
       }
     }
-  } else if (product.stock_key) {
-    const stock = state.inventory.find(s => s.stock_key === product.stock_key);
-    if (stock && newQty > stock.quantity) {
-      return { ok: false, msg: `สต็อก "${stock.name}" ไม่เพียงพอ` };
-    }
+  } else {
+    return { ok:false, msg:`เมนู "${product.name}" ยังไม่มีสูตรชง กรุณาตั้งสูตรก่อนขาย` };
   }
   return { ok: true };
 }
@@ -1475,7 +1471,7 @@ function refreshUnitCostPreview() {
 }
 ['#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(selector => { const el=$(selector); if(el) el.oninput=refreshUnitCostPreview; });
 const newInventoryKey=()=>`item_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;
-$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>{ ['#cost-inv-name','#cost-inv-unit','#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(s=>{const el=$(s);if(el)el.value='';}); if($('#cost-inv-key'))$('#cost-inv-key').value=newInventoryKey();if($('#cost-inv-quantity'))$('#cost-inv-quantity').value=0;if($('#cost-inv-low'))$('#cost-inv-low').value=0;refreshUnitCostPreview();$('#cost-inventory-dialog')?.showModal(); });
+$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>{ ['#cost-inv-name','#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(s=>{const el=$(s);if(el)el.value='';}); if($('#cost-inv-unit'))$('#cost-inv-unit').value='กรัม'; if($('#cost-inv-key'))$('#cost-inv-key').value=newInventoryKey();if($('#cost-inv-quantity'))$('#cost-inv-quantity').value=0;if($('#cost-inv-low'))$('#cost-inv-low').value=0;refreshUnitCostPreview();$('#cost-inventory-dialog')?.showModal(); });
 $('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{ const stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,materialType=$('#cost-inv-material-type')?.value||'other',quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value); if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกข้อมูลราคาซื้อและปริมาณให้ครบ','error');try{await api(costInventoryEditingKey?`/api/admin/cost-inventory/${stockKey}`:'/api/admin/cost-inventory',{method:costInventoryEditingKey?'PUT':'POST',body:JSON.stringify({stockKey,name,unit,category,materialType,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('บันทึกต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(e.message,'error');} });
 
 const topMenuToggle = $('#top-menu-toggle');

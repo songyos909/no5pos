@@ -95,6 +95,13 @@ const setThaiInventory = db.prepare("UPDATE inventory SET name_th=? WHERE stock_
 Object.entries(thaiInventoryNames).forEach(([key,name]) => setThaiInventory.run(name,key));
 const setThaiProduct = db.prepare("UPDATE products SET name_th=? WHERE name=? AND (name_th IS NULL OR name_th='')");
 Object.entries(thaiProductNames).forEach(([name,thai]) => setThaiProduct.run(thai,name));
+// Data-quality migration: identifiers and historical order rows are never changed.
+const canonicalUnits = { g:'กรัม', gram:'กรัม', grams:'กรัม', 'กรับ':'กรัม', ml:'มล.', 'มล':'มล.', pcs:'ชิ้น', pc:'ชิ้น', piece:'ชิ้น', pieces:'ชิ้น' };
+const normalizeUnit = db.prepare('UPDATE inventory SET unit=? WHERE lower(trim(unit))=?');
+Object.entries(canonicalUnits).forEach(([from,to]) => normalizeUnit.run(to,from));
+db.exec("UPDATE inventory SET name=trim(replace(replace(replace(replace(replace(name,' (กรัม)',''),' (มล.)',''),' (ใบ)',''),' (เส้น)',''),' (ชิ้น)',''));");
+db.exec("UPDATE inventory SET material_type='coffee_beans' WHERE stock_key IN ('coffee_nan','coffee_ethiopia'); UPDATE inventory SET material_type='cocoa' WHERE stock_key='cocoa'; UPDATE inventory SET material_type='milk' WHERE stock_key='milk01'; UPDATE inventory SET material_type='equipment' WHERE category='equipment';");
+db.exec("UPDATE inventory SET name_th='เมล็ดกาแฟน่าน' WHERE stock_key='coffee_nan' AND name_th IS NULL; UPDATE inventory SET name_th='เมล็ดกาแฟเอธิโอเปีย' WHERE stock_key='coffee_ethiopia' AND name_th IS NULL; UPDATE inventory SET name_th='ผงโกโก้' WHERE stock_key='cocoa' AND name_th IS NULL; UPDATE inventory SET name_th='นมข้นหวาน' WHERE stock_key='milk01' AND name_th IS NULL; UPDATE inventory SET name_th='ฝาแก้วเย็น 16 ออนซ์' WHERE stock_key='002' AND name_th IS NULL;");
 try { db.prepare("SELECT target_margin FROM products LIMIT 1").get(); }
 catch { db.exec("ALTER TABLE products ADD COLUMN target_margin REAL NOT NULL DEFAULT 0.65"); }
 
@@ -155,6 +162,20 @@ if (db.prepare('SELECT count(*) AS n FROM recipe_items').get().n === 0) {
   const add=db.prepare('INSERT OR IGNORE INTO recipe_items(product_id,stock_key,quantity) VALUES (?,?,?)');
   productIds.forEach((productId,index)=>(recipeLines[index]||[]).forEach(([stockKey,quantity])=>add.run(productId,stockKey,quantity)));
 }
+// Complete editable starter recipes for the standard menu. Existing recipes are preserved.
+const starterRecipes = {
+  'Espresso (Hot)':[ ['coffee_beans',20],['cup_hot',1] ],
+  'Iced Espresso':[ ['coffee_beans',20],['condensed_milk',30],['evaporated_milk',20],['milk',40],['ice',180],['cup_cold',1],['straw',1] ],
+  'Americano':[ ['coffee_beans',20],['ice',180],['cup_cold',1],['straw',1] ],
+  'Latte':[ ['coffee_beans',20],['condensed_milk',20],['milk',140],['ice',180],['cup_cold',1],['straw',1] ],
+  'Cappuccino':[ ['coffee_beans',20],['condensed_milk',20],['milk',120],['ice',180],['cup_cold',1],['straw',1] ],
+  'Mocha':[ ['coffee_beans',20],['cocoa_powder',12],['condensed_milk',20],['milk',120],['ice',180],['cup_cold',1],['straw',1] ],
+  'Caramel Macchiato':[ ['coffee_beans',20],['caramel_syrup',15],['condensed_milk',15],['milk',130],['ice',180],['cup_cold',1],['straw',1] ],
+  'Matcha Latte':[ ['tea_leaves',15],['condensed_milk',20],['milk',120],['ice',180],['cup_cold',1],['straw',1] ],
+  'Pure Matcha':[ ['tea_leaves',20],['ice',180],['cup_cold',1],['straw',1] ]
+};
+const addStarterRecipe = db.prepare('INSERT OR IGNORE INTO recipe_items(product_id,stock_key,quantity) VALUES (?,?,?)');
+Object.entries(starterRecipes).forEach(([name,items]) => { const product=db.prepare('SELECT id FROM products WHERE name=? AND active=1').get(name); if(product && db.prepare('SELECT 1 FROM recipe_items WHERE product_id=? LIMIT 1').get(product.id)===undefined) items.forEach(([key,qty])=>addStarterRecipe.run(product.id,key,qty)); });
 app.disable('x-powered-by');
 app.use((_, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -178,11 +199,9 @@ const fail = (res, message, status=400) => res.status(status).json({error:messag
 // Helper for structured stock checks
 const getRecipeItems = (productId, stockKey) => {
   const items = db.prepare('SELECT stock_key, quantity FROM recipe_items WHERE product_id=?').all(productId);
-  if (items.length > 0) return items;
-  // Fallback to stockKey if recipe items are empty (compatibility mode)
-  if (stockKey) return [{ stock_key: stockKey, quantity: 1 }];
-  return [];
+  return items;
 };
+const requireRecipe = product => { const items=getRecipeItems(product.id, product.stock_key); if (!items.length) throw Error(`เมนู ${product.name_th || product.name} ยังไม่มีสูตรชง กรุณาตั้งค่าสูตรก่อนขาย`); return items; };
 
 app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), features:Object.fromEntries(db.prepare('SELECT feature_key,enabled FROM feature_settings').all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
 app.get('/api/pricing', (_,res) => res.json(db.prepare(`SELECT p.id product_id,p.name,p.price store_price,c.channel_key,c.name channel_name,c.gp_percent,cp.sale_price,round(p.price/(1-c.gp_percent/100),2) suggested_price FROM products p CROSS JOIN sales_channels c LEFT JOIN channel_prices cp ON cp.product_id=p.id AND cp.channel_key=c.channel_key WHERE p.active=1 AND c.active=1 ORDER BY p.name,c.name`).all()));
@@ -241,9 +260,9 @@ app.post('/api/orders', (req,res) => {
         subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
       }
       const finalDiscount=Math.min(Number(discount),subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
-      for(const {product,qty} of lines) for(const item of getRecipeItems(product.id,product.stock_key)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
+      for(const {product,qty} of lines) for(const item of requireRecipe(product)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
       db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,memberPhone||null,received,changeDue);
-      for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name,unitPrice,qty,JSON.stringify(options)); for(const item of getRecipeItems(product.id,product.stock_key)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
+      for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name_th||product.name,unitPrice,qty,JSON.stringify(options)); for(const item of requireRecipe(product)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
       
       let memberPoints = 0;
       if(memberPhone && enabled('members')) {

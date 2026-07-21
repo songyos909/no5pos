@@ -25,6 +25,7 @@
         <div id="top-menu-list" class="top-menu-list" role="menu"></div>
       </div>
       <button class="icon-button" id="kds-mode-btn" type="button">☕<span>Kitchen View</span></button>
+      <a class="icon-button" href="./menu-board.html" target="_blank" rel="noopener">☕<span>Menu Board</span></a>
       <div class="status"><i></i> พร้อมขาย</div>
       <button class="icon-button" id="settingsBtn" aria-label="ตั้งค่าร้าน">⚙<span>ตั้งค่าร้าน</span></button>
     </div>
@@ -255,7 +256,7 @@
         <label>ประเภทวัตถุดิบหลัก<select id="cost-inv-material-type"><option value="coffee_beans">เมล็ดกาแฟ</option><option value="cocoa">โกโก้</option><option value="tea">ชา</option><option value="milk">นม</option><option value="sweetness">ความหวาน</option><option value="syrup">ไซรัป</option><option value="other" selected>อื่น ๆ / อุปกรณ์</option></select></label>
         <label>รหัสรายการ (สร้างอัตโนมัติ)<input id="cost-inv-key" readonly></label>
         <label>ชื่อรายการ<input id="cost-inv-name" placeholder="เมล็ดกาแฟ"></label>
-        <label>หน่วยนับ<input id="cost-inv-unit" placeholder="กรัม / ml / ใบ"></label>
+        <label>หน่วยนับ<select id="cost-inv-unit"><option value="กรัม">กรัม</option><option value="มล.">มล.</option><option value="ใบ">ใบ</option><option value="ชิ้น">ชิ้น</option><option value="เส้น">เส้น</option><option value="อัน">อัน</option><option value="ถุง">ถุง</option><option value="ขวด">ขวด</option><option value="กล่อง">กล่อง</option><option value="แพ็ก">แพ็ก</option></select></label>
         <label>จำนวนซื้อรวม<input id="cost-inv-purchase-qty" type="number" min="0.01" step="0.01"></label>
         <label>ราคาซื้อรวม (บาท)<input id="cost-inv-purchase-total" type="number" min="0" step="0.01"></label>
         <div class="cost-unit-preview"><small>ต้นทุนต่อหน่วย</small><b id="cost-inv-unit-price">฿0.0000</b></div>
