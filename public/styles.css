@@ -1306,6 +1306,16 @@ dialog:not(#kds-dialog) input, dialog:not(#kds-dialog) select, dialog:not(#kds-d
 #reports-dialog > form { overflow:auto; }
 #receipt-dialog { background:#fff !important; }
 @media (max-width:640px) { dialog:not(#kds-dialog) > form, dialog:not(#kds-dialog) > :first-child { padding:16px; } dialog:not(#kds-dialog) header { top:0; } }
+
+/* Modern app navigation: close/back at top-left, primary completion at top-right. */
+dialog:not(#kds-dialog) header { padding-left:58px; padding-right:190px; min-height:54px; }
+dialog:not(#kds-dialog) header .close { position:fixed; top:clamp(14px,2vw,24px); left:clamp(16px,3vw,34px); z-index:9; width:44px; min-height:44px; border-radius:14px; background:#f2ebe5; color:var(--primary); font-size:28px; line-height:1; }
+dialog:not(#kds-dialog) .touch-dialog-footer .primary, dialog:not(#kds-dialog) #btn-save-product-edit, dialog:not(#kds-dialog) #cost-inv-save, dialog:not(#kds-dialog) #recipe-selector-apply, dialog:not(#kds-dialog) #calc-submit-btn, dialog:not(#kds-dialog) #firebase-login-btn { position:fixed; top:clamp(16px,2vw,24px); right:clamp(16px,3vw,34px); z-index:9; min-height:44px; padding:0 18px; border-radius:14px; box-shadow:0 8px 20px rgba(83,55,42,.2); font-weight:700; }
+dialog:not(#kds-dialog) .touch-dialog-footer .primary::before { content:'✓ '; }
+dialog:not(#kds-dialog) #firebase-login-btn::before { content:'→ '; }
+dialog:not(#kds-dialog) #calc-submit-btn::before { content:'→ '; }
+dialog:not(#kds-dialog) #receipt-dialog header { padding-right:58px; }
+@media (max-width:480px) { dialog:not(#kds-dialog) header { padding-left:54px; padding-right:142px; } dialog:not(#kds-dialog) .touch-dialog-footer .primary, dialog:not(#kds-dialog) #btn-save-product-edit, dialog:not(#kds-dialog) #cost-inv-save, dialog:not(#kds-dialog) #recipe-selector-apply, dialog:not(#kds-dialog) #calc-submit-btn, dialog:not(#kds-dialog) #firebase-login-btn { right:16px; padding:0 12px; font-size:12px; } }
 .kds-shell { min-height:100%; padding:clamp(18px,3vw,42px); }
 .kds-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; padding-top:24px; }
 .kds-card { min-height:280px; padding:22px; border-radius:18px; border:3px solid; display:flex; flex-direction:column; box-shadow:var(--shadow-md); }
