@@ -226,8 +226,8 @@ app.post('/api/orders', (req,res) => {
         const product=findProduct.get(Number(row.productId)), qty=Number(row.quantity);
         if(!product || !product.active || !Number.isInteger(qty) || qty<1 || qty>99) throw Error('Invalid order item');
         const raw=row.options||{};
-        const options={temperature:['hot','iced','blended'].includes(raw.temperature)?raw.temperature:'iced',sweetness:[0,50,100].includes(Number(raw.sweetness))?Number(raw.sweetness):100,milk:'fresh',toppings:Array.isArray(raw.toppings)?raw.toppings.filter(x=>['extraShot','whippedCream'].includes(x)):[]};
-        const unitPrice=Number(product.price)+(options.toppings.includes('extraShot')?15:0)+(options.toppings.includes('whippedCream')?10:0);
+        const options={temperature:['hot','iced','blended'].includes(raw.temperature)?raw.temperature:'iced',sweetness:[0,50,100].includes(Number(raw.sweetness))?Number(raw.sweetness):100,milk:'fresh',toppings:Array.isArray(raw.toppings)?raw.toppings.filter(x=>x==='extraShot'):[]};
+        const unitPrice=Number(product.price)+(options.toppings.includes('extraShot')?20:0);
         subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
       }
       const finalDiscount=Math.min(Number(discount),subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
