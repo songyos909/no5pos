@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS recipe_items (
   FOREIGN KEY (stock_key) REFERENCES inventory(stock_key) ON DELETE CASCADE
 )
 `);
+db.exec(`CREATE TABLE IF NOT EXISTS recipe_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, items_json TEXT NOT NULL, created_at TEXT NOT NULL)`);
 
 // Migration: Update category column to use ingredient / equipment
 try {
@@ -376,6 +377,9 @@ app.get('/api/reports/transactions', (_, res) => {
 });
 
 app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare('SELECT feature_key,enabled FROM feature_settings').all()}));
+app.get('/api/admin/recipe-groups', admin, (_,res) => res.json(db.prepare('SELECT * FROM recipe_groups ORDER BY name').all().map(x=>({id:x.id,name:x.name,items:JSON.parse(x.items_json)}))));
+app.post('/api/admin/recipe-groups', admin, (req,res) => { const name=String(req.body?.name||'').trim(),items=Array.isArray(req.body?.items)?req.body.items.filter(x=>x.stock_key&&Number(x.quantity)>0):[];if(!name||!items.length)return fail(res,'ข้อมูลกลุ่มไม่ถูกต้อง');const groupId=`grp_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;db.prepare('INSERT INTO recipe_groups(id,name,items_json,created_at) VALUES (?,?,?,?)').run(groupId,name,JSON.stringify(items),new Date().toISOString());res.status(201).json({id:groupId}); });
+app.delete('/api/admin/recipe-groups/:id', admin, (req,res) => { const r=db.prepare('DELETE FROM recipe_groups WHERE id=?').run(req.params.id);return r.changes?res.json({ok:true}):fail(res,'ไม่พบกลุ่มรายการ',404); });
 app.post('/api/admin/cost-inventory/batch', admin, (req,res) => {
   const items=Array.isArray(req.body?.items)?req.body.items:[];
   if(!items.length)return fail(res,'ไม่พบรายการที่ต้องการเพิ่ม');

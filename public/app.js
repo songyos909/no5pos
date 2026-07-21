@@ -15,7 +15,8 @@ let state = {
   channels: [],
   recipesData: [],
   selectedCategory: 'all',
-  selectedStockCategory: 'all'
+  selectedStockCategory: 'all',
+  recipeGroups: []
 };
 let adminPin = '';
 let currentMember = null;
@@ -1337,7 +1338,13 @@ function renderRecipeSelector() {
     items.forEach(stock=>{const saved=currentEditRecipeItems.find(x=>x.stock_key===stock.stock_key);const row=document.createElement('div');row.className='recipe-selector-row';row.dataset.stockKey=stock.stock_key;const check=document.createElement('input');check.type='checkbox';check.checked=!!saved;const label=document.createElement('label');label.textContent=stock.name;const meta=document.createElement('small');meta.textContent=`${stock.stock_key} · ต้นทุน ${money(stock.cost_per_unit||0)}/${stock.unit}`;label.append(meta);const qty=document.createElement('input');qty.type='number';qty.min='0.01';qty.step='0.01';qty.value=saved?.quantity||1;qty.disabled=!check.checked;qty.setAttribute('aria-label',`ปริมาณ ${stock.name}`);check.onchange=()=>{qty.disabled=!check.checked;};row.append(check,label,qty);group.append(row);});root.append(group);
   });
 }
-$('#btn-open-recipe-selector') && ($('#btn-open-recipe-selector').onclick=()=>{renderRecipeSelector();$('#recipe-selector-dialog')?.showModal();});
+function renderRecipeGroupOptions() { const select=$('#recipe-group-select'); if(!select)return; const selected=select.value; select.replaceChildren(new Option('ใช้กลุ่มที่บันทึกไว้…',''),...state.recipeGroups.map(group=>new Option(group.name,group.id))); select.value=selected; }
+async function loadRecipeGroups() { try { state.recipeGroups=await api('/api/admin/recipe-groups'); } catch(e) { state.recipeGroups=[]; showNotice(e.message,'error'); } renderRecipeGroupOptions(); }
+function selectedRecipeGroupItems() { return [...document.querySelectorAll('.recipe-selector-row')].flatMap(row=>{const check=row.querySelector('input[type="checkbox"]'),qty=row.querySelector('input[type="number"]');return check?.checked&&Number(qty?.value)>0?[{stock_key:row.dataset.stockKey,quantity:Number(qty.value)}]:[];}); }
+$('#btn-open-recipe-selector') && ($('#btn-open-recipe-selector').onclick=async()=>{await loadRecipeGroups();renderRecipeSelector();$('#recipe-selector-dialog')?.showModal();});
+$('#recipe-group-use') && ($('#recipe-group-use').onclick=()=>{const group=state.recipeGroups.find(x=>x.id===$('#recipe-group-select')?.value);if(!group)return showNotice('เลือกกลุ่มที่ต้องการใช้','error');const selected=new Map(selectedRecipeGroupItems().map(x=>[x.stock_key,x.quantity]));(group.items||[]).forEach(x=>selected.set(x.stock_key,Number(x.quantity)||1));document.querySelectorAll('.recipe-selector-row').forEach(row=>{const check=row.querySelector('input[type="checkbox"]'),qty=row.querySelector('input[type="number"]'),value=selected.get(row.dataset.stockKey);if(value==null)return;check.checked=true;qty.disabled=false;qty.value=value;});});
+$('#recipe-group-save') && ($('#recipe-group-save').onclick=async()=>{const name=($('#recipe-group-name')?.value||'').trim(),items=selectedRecipeGroupItems();if(!name||!items.length)return showNotice('ตั้งชื่อกลุ่มและติ๊กรายการอย่างน้อย 1 รายการ','error');try{await api('/api/admin/recipe-groups',{method:'POST',body:JSON.stringify({name,items})});$('#recipe-group-name').value='';await loadRecipeGroups();showNotice('บันทึกกลุ่มรายการแล้ว');}catch(e){showNotice(e.message,'error');}});
+$('#recipe-group-delete') && ($('#recipe-group-delete').onclick=async()=>{const id=$('#recipe-group-select')?.value;if(!id)return showNotice('เลือกกลุ่มที่ต้องการลบ','error');if(!confirm('ลบกลุ่มรายการนี้?'))return;try{await api(`/api/admin/recipe-groups/${id}`,{method:'DELETE'});await loadRecipeGroups();showNotice('ลบกลุ่มรายการแล้ว');}catch(e){showNotice(e.message,'error');}});
 $('#recipe-selector-apply') && ($('#recipe-selector-apply').onclick=()=>{const rows=[...document.querySelectorAll('.recipe-selector-row')],selected=[];rows.forEach(row=>{const check=row.querySelector('input[type="checkbox"]'),qty=row.querySelector('input[type="number"]');if(!check?.checked||!(Number(qty?.value)>0))return;const stock=state.inventory.find(x=>x.stock_key===row.dataset.stockKey);if(stock)selected.push({stock_key:stock.stock_key,quantity:Number(qty.value),name:stock.name,unit:stock.unit,cost_per_unit:stock.cost_per_unit});});currentEditRecipeItems=selected;$('#recipe-selector-dialog')?.close();renderEditRecipeItems();});
 
 // Save product & recipe button
@@ -1415,22 +1422,9 @@ function refreshUnitCostPreview() {
   const qty=Number($('#cost-inv-purchase-qty')?.value)||0, total=Number($('#cost-inv-purchase-total')?.value)||0;
   const out=$('#cost-inv-unit-price'); if(out) out.textContent=qty>0?money(total/qty):money(0);
 }
-const inventoryGroupTemplates = {
-  'cold-cup-set': [
-    {stockKey:'cup_cold',name:'แก้วเย็น 16oz',unit:'ใบ',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0},
-    {stockKey:'lid_cold',name:'ฝาแก้วเย็น 16oz',unit:'ใบ',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0},
-    {stockKey:'straw',name:'หลอดพลาสติก',unit:'เส้น',category:'equipment',quantity:0,lowAlert:200,purchaseQuantity:1,purchaseTotal:0},
-    {stockKey:'ice',name:'น้ำแข็ง',unit:'กรัม',category:'ingredient',quantity:0,lowAlert:3000,purchaseQuantity:1,purchaseTotal:0}
-  ],
-  'hot-cup-set': [
-    {stockKey:'cup_hot',name:'แก้วร้อน 8oz',unit:'ใบ',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0},
-    {stockKey:'lid_hot',name:'ฝาแก้วร้อน 8oz',unit:'ใบ',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0},
-    {stockKey:'stirrer',name:'ไม้คนกาแฟ',unit:'อัน',category:'equipment',quantity:0,lowAlert:100,purchaseQuantity:1,purchaseTotal:0}
-  ]
-};
-$('#inventory-group-add') && ($('#inventory-group-add').onclick=async()=>{ const key=$('#inventory-group-template')?.value,items=inventoryGroupTemplates[key]||[]; if(!items.length)return; try { const r=await api('/api/admin/cost-inventory/batch',{method:'POST',body:JSON.stringify({items})}); showNotice(`เพิ่ม ${r.added||0} รายการ · มีอยู่แล้ว ${r.existing||0} รายการ`); await load(); await adminLoad(); } catch(e) { showNotice(e.message,'error'); } });
 ['#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(selector => { const el=$(selector); if(el) el.oninput=refreshUnitCostPreview; });
-$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>{ ['#cost-inv-key','#cost-inv-name','#cost-inv-unit','#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(s=>{const el=$(s);if(el)el.value='';}); if($('#cost-inv-quantity'))$('#cost-inv-quantity').value=0;if($('#cost-inv-low'))$('#cost-inv-low').value=0;refreshUnitCostPreview();$('#cost-inventory-dialog')?.showModal(); });
+const newInventoryKey=()=>`item_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;
+$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>{ ['#cost-inv-name','#cost-inv-unit','#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(s=>{const el=$(s);if(el)el.value='';}); if($('#cost-inv-key'))$('#cost-inv-key').value=newInventoryKey();if($('#cost-inv-quantity'))$('#cost-inv-quantity').value=0;if($('#cost-inv-low'))$('#cost-inv-low').value=0;refreshUnitCostPreview();$('#cost-inventory-dialog')?.showModal(); });
 $('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{ const stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value); if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกข้อมูลราคาซื้อและปริมาณให้ครบ','error');try{await api('/api/admin/cost-inventory',{method:'POST',body:JSON.stringify({stockKey,name,unit,category,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('บันทึกต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(e.message,'error');} });
 
 const topMenuToggle = $('#top-menu-toggle');
@@ -1444,10 +1438,10 @@ let costInventoryEditingKey = null;
 function openCostInventory(item = null) {
   costInventoryEditingKey = item?.stock_key || null;
   const set=(id,value)=>{const el=$(id);if(el)el.value=value ?? '';};
-  set('#cost-inv-key', item?.stock_key || ''); set('#cost-inv-name', item?.name || ''); set('#cost-inv-unit', item?.unit || '');
+  set('#cost-inv-key', item?.stock_key || newInventoryKey()); set('#cost-inv-name', item?.name || ''); set('#cost-inv-unit', item?.unit || '');
   set('#cost-inv-category', item?.category || 'ingredient'); set('#cost-inv-quantity', item?.quantity || 0); set('#cost-inv-low', item?.low_alert || 0);
   set('#cost-inv-purchase-qty', item?.purchase_quantity || 1); set('#cost-inv-purchase-total', item?.purchase_total || item?.cost_per_unit || 0);
-  const key=$('#cost-inv-key'); if(key) key.readOnly=!!item;
+  const key=$('#cost-inv-key'); if(key) key.readOnly=true;
   const title=document.querySelector('#cost-inventory-dialog h2'); if(title) title.textContent=item?'แก้ไขราคาซื้อและต้นทุน':'เพิ่มวัตถุดิบ / บรรจุภัณฑ์';
   refreshUnitCostPreview(); $('#cost-inventory-dialog')?.showModal();
 }
