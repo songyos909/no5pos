@@ -15,7 +15,7 @@ let state = {
   channels: [],
   recipesData: [],
   selectedCategory: 'all',
-  selectedStockCategory: 'all',
+  selectedStockCategory: 'all', selectedMaterialType: 'all',
   recipeGroups: []
 };
 let adminPin = '';
@@ -822,13 +822,14 @@ document.querySelectorAll('.stock-tab-btn').forEach(btn => {
     renderInventoryList();
   };
 });
+$('#stock-material-filter') && ($('#stock-material-filter').onchange=e=>{state.selectedMaterialType=e.target.value;renderInventoryList();});
 
 // ── Inventory list rendering ──────────────────────────────────
 function renderInventoryList() {
   const container = $('#inventory');
   if (!container) return;
   const cat = state.selectedStockCategory;
-  const items = cat === 'all' ? state.inventory : state.inventory.filter(x => x.category === cat);
+  const type=state.selectedMaterialType; const items = state.inventory.filter(x => (cat === 'all' || x.category === cat) && (type === 'all' || (x.material_type||'other') === type));
 
   container.replaceChildren();
   if (!items.length) {
@@ -852,7 +853,8 @@ function renderInventoryList() {
     
     const details = document.createElement('small');
     details.style.cssText = 'color:#888; font-size:11px;';
-    details.textContent = `${catLabel} · รหัส: ${x.stock_key} · ต้นทุน: ${money(x.cost_per_unit)}/${x.unit}`;
+    const materialLabels={coffee_beans:'เมล็ดกาแฟ',cocoa:'โกโก้',tea:'ชา',milk:'นม',sweetness:'ความหวาน',syrup:'ไซรัป',other:'อื่น ๆ'};
+    details.textContent = `${catLabel} · ${materialLabels[x.material_type||'other']} · รหัส: ${x.stock_key} · ต้นทุน: ${money(x.cost_per_unit)}/${x.unit}`;
     
     info.append(name, details);
     
@@ -1425,7 +1427,7 @@ function refreshUnitCostPreview() {
 ['#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(selector => { const el=$(selector); if(el) el.oninput=refreshUnitCostPreview; });
 const newInventoryKey=()=>`item_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;
 $('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>{ ['#cost-inv-name','#cost-inv-unit','#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(s=>{const el=$(s);if(el)el.value='';}); if($('#cost-inv-key'))$('#cost-inv-key').value=newInventoryKey();if($('#cost-inv-quantity'))$('#cost-inv-quantity').value=0;if($('#cost-inv-low'))$('#cost-inv-low').value=0;refreshUnitCostPreview();$('#cost-inventory-dialog')?.showModal(); });
-$('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{ const stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value); if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกข้อมูลราคาซื้อและปริมาณให้ครบ','error');try{await api('/api/admin/cost-inventory',{method:'POST',body:JSON.stringify({stockKey,name,unit,category,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('บันทึกต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(e.message,'error');} });
+$('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{ const stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,materialType=$('#cost-inv-material-type')?.value||'other',quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value); if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกข้อมูลราคาซื้อและปริมาณให้ครบ','error');try{await api(costInventoryEditingKey?`/api/admin/cost-inventory/${stockKey}`:'/api/admin/cost-inventory',{method:costInventoryEditingKey?'PUT':'POST',body:JSON.stringify({stockKey,name,unit,category,materialType,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('บันทึกต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(e.message,'error');} });
 
 const topMenuToggle = $('#top-menu-toggle');
 if (topMenuToggle) topMenuToggle.onclick = () => {
@@ -1440,6 +1442,7 @@ function openCostInventory(item = null) {
   const set=(id,value)=>{const el=$(id);if(el)el.value=value ?? '';};
   set('#cost-inv-key', item?.stock_key || newInventoryKey()); set('#cost-inv-name', item?.name || ''); set('#cost-inv-unit', item?.unit || '');
   set('#cost-inv-category', item?.category || 'ingredient'); set('#cost-inv-quantity', item?.quantity || 0); set('#cost-inv-low', item?.low_alert || 0);
+  set('#cost-inv-material-type', item?.material_type || 'other');
   set('#cost-inv-purchase-qty', item?.purchase_quantity || 1); set('#cost-inv-purchase-total', item?.purchase_total || item?.cost_per_unit || 0);
   const key=$('#cost-inv-key'); if(key) key.readOnly=true;
   const title=document.querySelector('#cost-inventory-dialog h2'); if(title) title.textContent=item?'แก้ไขราคาซื้อและต้นทุน':'เพิ่มวัตถุดิบ / บรรจุภัณฑ์';

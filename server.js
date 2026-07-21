@@ -82,6 +82,9 @@ try {
 }
 try { db.prepare("SELECT purchase_quantity FROM inventory LIMIT 1").get(); }
 catch { db.exec("ALTER TABLE inventory ADD COLUMN purchase_quantity REAL NOT NULL DEFAULT 0; ALTER TABLE inventory ADD COLUMN purchase_total REAL NOT NULL DEFAULT 0"); }
+try { db.prepare("SELECT material_type FROM inventory LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE inventory ADD COLUMN material_type TEXT NOT NULL DEFAULT 'other'"); }
+db.exec("UPDATE inventory SET material_type='coffee_beans' WHERE stock_key='coffee_beans'; UPDATE inventory SET material_type='cocoa' WHERE stock_key='cocoa_powder'; UPDATE inventory SET material_type='tea' WHERE stock_key='tea_leaves'; UPDATE inventory SET material_type='milk' WHERE stock_key IN ('milk','condensed_milk','evaporated_milk'); UPDATE inventory SET material_type='syrup' WHERE stock_key LIKE '%syrup%';");
 try { db.prepare("SELECT target_margin FROM products LIMIT 1").get(); }
 catch { db.exec("ALTER TABLE products ADD COLUMN target_margin REAL NOT NULL DEFAULT 0.65"); }
 
@@ -390,14 +393,14 @@ app.post('/api/admin/cost-inventory/batch', admin, (req,res) => {
 });
 app.post('/api/admin/cost-inventory', admin, (req,res) => {
   const stockKey=String(req.body?.stockKey||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');
-  const name=String(req.body?.name||'').trim(),unit=String(req.body?.unit||'').trim(),quantity=Number(req.body?.quantity),lowAlert=Number(req.body?.lowAlert),purchaseQuantity=Number(req.body?.purchaseQuantity),purchaseTotal=Number(req.body?.purchaseTotal),category=req.body?.category==='equipment'?'equipment':'ingredient';
+  const name=String(req.body?.name||'').trim(),unit=String(req.body?.unit||'').trim(),quantity=Number(req.body?.quantity),lowAlert=Number(req.body?.lowAlert),purchaseQuantity=Number(req.body?.purchaseQuantity),purchaseTotal=Number(req.body?.purchaseTotal),category=req.body?.category==='equipment'?'equipment':'ingredient',materialType=['coffee_beans','cocoa','tea','milk','sweetness','syrup','other'].includes(req.body?.materialType)?req.body.materialType:'other';
   if(!stockKey||!name||!unit||![quantity,lowAlert,purchaseQuantity,purchaseTotal].every(Number.isFinite)||quantity<0||lowAlert<0||purchaseQuantity<=0||purchaseTotal<0)return fail(res,'ข้อมูลต้นทุนไม่ถูกต้อง');
-  try { db.prepare('INSERT INTO inventory(stock_key,name,unit,quantity,low_alert,category,purchase_quantity,purchase_total,cost_per_unit) VALUES (?,?,?,?,?,?,?,?,?)').run(stockKey,name,unit,quantity,lowAlert,category,purchaseQuantity,purchaseTotal,purchaseTotal/purchaseQuantity);res.status(201).json({ok:true}); } catch { fail(res,'รหัสวัตถุดิบซ้ำ',409); }
+  try { db.prepare('INSERT INTO inventory(stock_key,name,unit,quantity,low_alert,category,material_type,purchase_quantity,purchase_total,cost_per_unit) VALUES (?,?,?,?,?,?,?,?,?,?)').run(stockKey,name,unit,quantity,lowAlert,category,materialType,purchaseQuantity,purchaseTotal,purchaseTotal/purchaseQuantity);res.status(201).json({ok:true}); } catch { fail(res,'รหัสวัตถุดิบซ้ำ',409); }
 });
 app.put('/api/admin/cost-inventory/:key', admin, (req,res) => {
-  const name=String(req.body?.name||'').trim(),unit=String(req.body?.unit||'').trim(),quantity=Number(req.body?.quantity),lowAlert=Number(req.body?.lowAlert),purchaseQuantity=Number(req.body?.purchaseQuantity),purchaseTotal=Number(req.body?.purchaseTotal),category=req.body?.category==='equipment'?'equipment':'ingredient';
+  const name=String(req.body?.name||'').trim(),unit=String(req.body?.unit||'').trim(),quantity=Number(req.body?.quantity),lowAlert=Number(req.body?.lowAlert),purchaseQuantity=Number(req.body?.purchaseQuantity),purchaseTotal=Number(req.body?.purchaseTotal),category=req.body?.category==='equipment'?'equipment':'ingredient',materialType=['coffee_beans','cocoa','tea','milk','sweetness','syrup','other'].includes(req.body?.materialType)?req.body.materialType:'other';
   if(!name||!unit||![quantity,lowAlert,purchaseQuantity,purchaseTotal].every(Number.isFinite)||quantity<0||lowAlert<0||purchaseQuantity<=0||purchaseTotal<0)return fail(res,'ข้อมูลต้นทุนไม่ถูกต้อง');
-  const r=db.prepare('UPDATE inventory SET name=?,unit=?,quantity=?,low_alert=?,category=?,purchase_quantity=?,purchase_total=?,cost_per_unit=? WHERE stock_key=?').run(name,unit,quantity,lowAlert,category,purchaseQuantity,purchaseTotal,purchaseTotal/purchaseQuantity,req.params.key);return r.changes?res.json({ok:true}):fail(res,'ไม่พบวัตถุดิบ',404);
+  const r=db.prepare('UPDATE inventory SET name=?,unit=?,quantity=?,low_alert=?,category=?,material_type=?,purchase_quantity=?,purchase_total=?,cost_per_unit=? WHERE stock_key=?').run(name,unit,quantity,lowAlert,category,materialType,purchaseQuantity,purchaseTotal,purchaseTotal/purchaseQuantity,req.params.key);return r.changes?res.json({ok:true}):fail(res,'ไม่พบวัตถุดิบ',404);
 });
 app.put('/api/admin/settings/:key', admin, (req,res) => { const ok=db.prepare('UPDATE feature_settings SET enabled=? WHERE feature_key=?').run(req.body?.enabled?1:0,req.params.key); return ok.changes?res.json({ok:true}):fail(res,'ไม่พบฟังก์ชัน',404); });
 app.post('/api/admin/inventory/:key/adjust', admin, (req,res) => { const amount=Number(req.body?.amount); const reason=String(req.body?.reason || 'manual adjustment').trim(); if(!Number.isFinite(amount)||amount===0) return fail(res,'จำนวนไม่ถูกต้อง'); const r=db.prepare('UPDATE inventory SET quantity=quantity+? WHERE stock_key=? AND quantity+?>=0').run(amount,req.params.key,amount); if(!r.changes)return fail(res,'สต็อกไม่พอหรือไม่พบรายการ'); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,created_at) VALUES (?,?,?,?)').run(req.params.key,amount,reason,new Date().toISOString()); res.json({ok:true}); });
