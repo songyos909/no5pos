@@ -38,13 +38,16 @@
   async function activate(user) {
     if (!user || user.email !== 'songyos909@gmail.com') return;
     const settings = db.collection('settings').doc('features');
-    if (!(await settings.get()).exists) {
+    const settingsSnap = await settings.get();
+    const resetCompleted = settingsSnap.data()?.store_reset === true;
+    if (!settingsSnap.exists) {
       const batch=db.batch(); batch.set(settings,defaults.features);
       defaults.categories.forEach(([id,name])=>batch.set(db.collection('categories').doc(id),{name,active:true}));
       defaults.channels.forEach(([id,name,gp_percent])=>batch.set(db.collection('channels').doc(id),{name,gp_percent,active:true}));
       await batch.commit();
     }
-    // เติมเฉพาะเมนูมาตรฐานที่ยังไม่มี เพื่อให้ร้านที่เริ่มใช้งานก่อนหน้าได้เมนูครบ
+    // เติมเมนูตัวอย่างเฉพาะร้านใหม่; ร้านที่กดรีเซ็ตต้องเริ่มจากข้อมูลว่างจริง ๆ
+    if (!resetCompleted) {
     const currentProducts = await db.collection('products').get();
     const translated = currentProducts.docs.filter(doc => !doc.data().name_th && thaiProductNames[doc.data().name]);
     if (translated.length) { const batch=db.batch(); translated.forEach(doc => batch.set(doc.ref,{name_th:thaiProductNames[doc.data().name]},{merge:true})); await batch.commit(); }
@@ -57,6 +60,7 @@
     const existingInventoryIds = new Set(currentInventory.docs.map(d => d.id));
     const missingInventory = defaultInventory.filter(item => !existingInventoryIds.has(item.id));
     if (missingInventory.length) { const batch=db.batch(); missingInventory.forEach(item=>{const {id,...data}=item;batch.set(db.collection('inventory').doc(id),data);}); await batch.commit(); }
+    }
     document.querySelector('#firebase-login-dialog')?.close();
     readyResolve();
   }

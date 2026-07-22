@@ -112,6 +112,8 @@ db.exec(`
 `);
 
 // Seed default inventory items
+const storeWasReset = db.prepare("SELECT enabled FROM feature_settings WHERE feature_key='store_reset'").get()?.enabled === 1;
+if (!storeWasReset) {
 const insertInv = db.prepare("INSERT OR IGNORE INTO inventory (stock_key, name, unit, quantity, low_alert, category) VALUES (?, ?, ?, ?, ?, ?)");
 insertInv.run('condensed_milk', 'Sweetened condensed milk', 'ml', 5000, 800, 'ingredient');
 insertInv.run('evaporated_milk', 'Evaporated milk', 'ml', 5000, 800, 'ingredient');
@@ -176,6 +178,7 @@ const starterRecipes = {
 };
 const addStarterRecipe = db.prepare('INSERT OR IGNORE INTO recipe_items(product_id,stock_key,quantity) VALUES (?,?,?)');
 Object.entries(starterRecipes).forEach(([name,items]) => { const product=db.prepare('SELECT id FROM products WHERE name=? AND active=1').get(name); if(product && db.prepare('SELECT 1 FROM recipe_items WHERE product_id=? LIMIT 1').get(product.id)===undefined) items.forEach(([key,qty])=>addStarterRecipe.run(product.id,key,qty)); });
+}
 app.disable('x-powered-by');
 app.use((_, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
