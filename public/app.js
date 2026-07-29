@@ -22,6 +22,7 @@ let currentMember = null;
 let checkoutPayload = null;
 let currentEditRecipeItems = [];
 let uploadedProductImageData = null;
+let productEditorReturnView = null;
 
 // ── Utilities ─────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
@@ -84,6 +85,7 @@ async function load() {
     state.categories = boot.categories || [];
     state.inventory = (boot.inventory || []).map(item => ({ ...item, name: displayName(item) }));
     state.channels = boot.channels || [];
+    renderOnlineChannelOptions();
     state.cart = savedCart;
     state.selectedCategory = savedCategory;
     state.selectedStockCategory = savedStockCat;
@@ -104,13 +106,44 @@ async function load() {
     const ordersEl = $('#orders');
     if (salesEl) salesEl.textContent = money(todayStats.storeSales ?? todayStats.sales);
     if (ordersEl) ordersEl.textContent = todayStats.storeOrders ?? todayStats.orders;
-    if ($('#online-sales')) $('#online-sales').textContent = money(todayStats.onlineSales);
+    if ($('#online-sales')) $('#online-sales').textContent = money(todayStats.onlineNet ?? todayStats.onlineSales);
     if ($('#online-orders')) $('#online-orders').textContent = `${todayStats.onlineOrders || 0} บิล`;
 
     await renderQuickBrewQueue();
   } catch (e) {
     showNotice(e.message, 'error');
   }
+}
+
+function selectedOnlineChannel() {
+  const key = $('#online-channel')?.value;
+  return state.channels.find(channel => channel.channel_key === key) || null;
+}
+
+function updateOnlineChannelUI() {
+  const online = document.querySelector('input[name="sale-channel"]:checked')?.value === 'online';
+  const fields = $('#online-channel-fields');
+  if (fields) fields.hidden = !online;
+  const channel = selectedOnlineChannel();
+  const summary = $('#online-gp-summary');
+  if (!summary) return;
+  if (!online) summary.textContent = '';
+  else if (!channel || Number(channel.gp_percent) <= 0) summary.textContent = '⚠ กรุณาตั้งค่า GP จริงของร้านก่อนบันทึกขายออนไลน์';
+  else summary.textContent = `GP ตามสัญญา ${Number(channel.gp_percent).toFixed(2)}% · ระบบคำนวณยอดสุทธิหลังหัก GP`;
+}
+
+function renderOnlineChannelOptions() {
+  const select = $('#online-channel');
+  if (!select) return;
+  const previous = select.value;
+  select.replaceChildren(...state.channels.map(channel => {
+    const option = document.createElement('option');
+    option.value = channel.channel_key;
+    option.textContent = `${channel.name} — GP ${Number(channel.gp_percent || 0).toFixed(2)}%`;
+    return option;
+  }));
+  if (state.channels.some(channel => channel.channel_key === previous)) select.value = previous;
+  updateOnlineChannelUI();
 }
 
 // ── Feature / layout state ────────────────────────────────────
@@ -535,6 +568,9 @@ async function checkout() {
   const total = subtotal - disc;
   const payType = $('#payment')?.value || 'cash';
   const salesChannel = document.querySelector('input[name="sale-channel"]:checked')?.value || 'store';
+  const onlineChannel = salesChannel === 'online' ? selectedOnlineChannel() : null;
+  const gpPercent = onlineChannel ? Number(onlineChannel.gp_percent || 0) : 0;
+  if (salesChannel === 'online' && (!onlineChannel || gpPercent <= 0)) return showNotice('กรุณาตั้งค่า GP จริงของแพลตฟอร์มก่อนขายออนไลน์', 'error');
   const redeemFreeCup = memberDiscount > 0;
 
   checkoutPayload = {
@@ -542,6 +578,8 @@ async function checkout() {
     discount: disc,
     paymentType: payType,
     salesChannel,
+    onlinePlatform: onlineChannel?.channel_key || null,
+    gpPercent,
     memberPhone: currentMember?.phone || null,
     received: total,
     changeDue: 0,
@@ -805,7 +843,7 @@ if (reportsBtn) {
       if (pmEl) {
         const cashSales = storeTransactions.filter(x => x.payment_type === 'cash').reduce((sum,x)=>sum+x.total,0);
         const qrSales = storeTransactions.filter(x => x.payment_type === 'qr').reduce((sum,x)=>sum+x.total,0);
-        const onlineSales = onlineTransactions.reduce((sum,x)=>sum+x.total,0);
+        const onlineSales = onlineTransactions.reduce((sum,x)=>sum+Number(x.online_net ?? (x.total * (1 - Number(x.gp_percent || 0) / 100))),0);
         pmEl.innerHTML = `
           <div style="text-align:center;flex:1;">
             <div style="font-size:11px;color:#888;">💵 เงินสด</div>
@@ -818,7 +856,7 @@ if (reportsBtn) {
           </div>
           <div style="border-left:1px dashed #dfcec0;"></div>
           <div style="text-align:center;flex:1;">
-            <div style="font-size:11px;color:#888;">🌐 ออนไลน์ (ไม่รวมหน้าร้าน)</div>
+            <div style="font-size:11px;color:#888;">🌐 ออนไลน์สุทธิหลัง GP</div>
             <div style="font-size:20px;font-weight:700;color:#236b8e;margin-top:4px;">${money(onlineSales)}</div>
           </div>`;
       }
@@ -1329,6 +1367,11 @@ function renderEditRecipeItems() {
 
 async function openProductEditor(product) {
   // Close settings → bounce to home register screen, then show editor overlay
+  const settingsDialog = $('#settings');
+  productEditorReturnView = settingsDialog?.open ? {
+    tab: document.querySelector('.admin-tab-panel.active-panel')?.id || 'tab-products',
+    title: document.querySelector('#settings header h2')?.textContent || 'จัดการเมนูและสูตรชง'
+  } : null;
   $('#settings')?.close();
   uploadedProductImageData = product?.image_data || null;
   if ($('#edit-prod-image-upload')) $('#edit-prod-image-upload').value = '';
@@ -1380,6 +1423,13 @@ async function openProductEditor(product) {
   $('#product-edit-dialog')?.showModal();
 }
 
+function closeProductEditorAndReturn() {
+  $('#product-edit-dialog')?.close();
+  const target = productEditorReturnView;
+  productEditorReturnView = null;
+  if (target) setTimeout(() => openAdminWindow(target.tab, target.title), 0);
+}
+
 function updateProductImagePreview() {
   const preview = $('#edit-prod-image-preview');
   const imagePath = uploadedProductImageData || $('#edit-prod-image')?.value;
@@ -1427,7 +1477,7 @@ const triggerAddBtn = $('#btn-trigger-add-product');
 if (triggerAddBtn) triggerAddBtn.onclick = () => openProductEditor(null);
 
 // Close product editor
-document.querySelectorAll('#product-edit-dialog .close').forEach(b => { b.onclick = () => $('#product-edit-dialog')?.close(); });
+document.querySelectorAll('#product-edit-dialog .close').forEach(b => { b.onclick = closeProductEditorAndReturn; });
 
 let recipeSelectorDraft = [];
 function setRecipeSelectorItem(stockKey, quantity) { const idx=recipeSelectorDraft.findIndex(x=>x.stock_key===stockKey); if(quantity>0){if(idx>=0)recipeSelectorDraft[idx].quantity=quantity;else recipeSelectorDraft.push({stock_key:stockKey,quantity});}else if(idx>=0)recipeSelectorDraft.splice(idx,1); }
@@ -1533,7 +1583,7 @@ if (saveProductBtn) {
         body: JSON.stringify({ items: currentEditRecipeItems, description })
       });
 
-      $('#product-edit-dialog')?.close();
+      closeProductEditorAndReturn();
       await load();
       await adminLoad();
     } catch (e) { showNotice(e.message, 'error'); }
@@ -1550,7 +1600,7 @@ if (deleteProductBtn) {
     try {
       await api(`/api/admin/products/${id}`, { method: 'DELETE' });
       showNotice('ลบสินค้าแล้ว');
-      $('#product-edit-dialog')?.close();
+      closeProductEditorAndReturn();
       await load();
       await adminLoad();
     } catch (e) { showNotice(e.message, 'error'); }
@@ -1585,6 +1635,8 @@ if (quickAddCategoryBtn) quickAddCategoryBtn.onclick = () => {
 
 const discountEl = $('#discount');
 if (discountEl) discountEl.oninput = renderCart;
+document.querySelectorAll('input[name="sale-channel"]').forEach(input => { input.onchange = updateOnlineChannelUI; });
+$('#online-channel') && ($('#online-channel').onchange = updateOnlineChannelUI);
 
 const checkoutBtn = $('#checkout');
 if (checkoutBtn) checkoutBtn.onclick = checkout;

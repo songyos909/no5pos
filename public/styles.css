@@ -1400,6 +1400,12 @@ dialog:not(#kds-dialog) #firebase-login-btn {
 .sale-channel-toggle label { display:flex; align-items:center; justify-content:center; gap:7px; min-height:42px; margin:0; border:1px solid #eadbd0; border-radius:9px; background:#fff; cursor:pointer; font-weight:700; }
 .sale-channel-toggle label:has(input:checked) { border-color:var(--primary); background:#f3e6dc; color:var(--primary); box-shadow:0 0 0 1px var(--primary); }
 .sale-channel-toggle input { width:auto; margin:0; accent-color:var(--primary); }
+.online-channel-fields { grid-column:1/-1; display:grid; grid-template-columns:minmax(180px,1fr) minmax(220px,1.4fr); gap:8px; align-items:end; padding-top:4px; }
+.online-channel-fields[hidden] { display:none; }
+.online-channel-fields label { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:4px; padding:0; border:0; background:transparent; box-shadow:none; font-size:11px; }
+.online-channel-fields select { min-height:40px; }
+.online-channel-fields output { min-height:40px; padding:9px 11px; border-radius:8px; background:#eaf5fa; color:#235f78; font-size:11px; font-weight:600; }
+@media (max-width:640px) { .online-channel-fields { grid-template-columns:1fr; } }
 @media (max-width:640px) {
   dialog:not(#kds-dialog) header { padding-right:54px; }
   .category-toolbar { align-items:stretch; flex-direction:column; }

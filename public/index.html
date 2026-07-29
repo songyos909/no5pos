@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260729-5">
+  <link rel="stylesheet" href="./styles.css?v=20260729-6">
 </head>
 <body>
   <header class="topbar">
@@ -75,6 +75,10 @@
           <legend>ประเภทการขาย</legend>
           <label><input type="radio" name="sale-channel" value="store" checked> 🏪 หน้าร้าน</label>
           <label><input type="radio" name="sale-channel" value="online"> 🌐 ออนไลน์</label>
+          <div id="online-channel-fields" class="online-channel-fields" hidden>
+            <label>แพลตฟอร์ม<select id="online-channel"></select></label>
+            <output id="online-gp-summary">กรุณาตั้งค่า GP จริงของร้าน</output>
+          </div>
         </fieldset>
         <label>ส่วนลด <span>บาท</span>
           <input id="discount" type="number" min="0" value="0">
@@ -140,7 +144,7 @@
     <article>
       <span class="dashboard-icon">🌐</span>
       <div>
-        <small>ยอดออนไลน์วันนี้ (แยกจากหน้าร้าน)</small>
+        <small>ยอดออนไลน์สุทธิหลัง GP</small>
         <b id="online-sales">฿0.00</b>
         <small id="online-orders">0 บิล</small>
       </div>
@@ -233,7 +237,7 @@
           <div id="tab-pricing" class="admin-tab-panel">
             <section class="settings-section">
               <h3>ช่องทางออนไลน์และอัตรา GP (%)</h3>
-              <p class="hint">กำหนดค่า GP ของแต่ละแอพเพื่อคำนวณราคาขายชดเชยส่วนต่าง</p>
+              <p class="hint">กรอกค่า GP จริงตามสัญญาร้านของแต่ละแอพ (เปอร์เซ็นต์ที่รวม VAT/ค่าธรรมเนียมแล้ว) ระบบจะใช้ค่านี้คำนวณราคาขายและรายรับสุทธิออนไลน์ ห้ามใช้ค่าประมาณ</p>
               <div id="channels" class="setting-list" style="margin-bottom:15px;"></div>
             </section>
             <section class="settings-section">
@@ -632,7 +636,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260729-5"></script>
-  <script src="./app.js?v=20260729-5"></script>
+  <script src="./firebase-client.js?v=20260729-6"></script>
+  <script src="./app.js?v=20260729-6"></script>
 </body>
 </html>
