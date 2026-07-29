@@ -20,7 +20,7 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 db.exec(`
-CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), category TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '☕', active INTEGER NOT NULL DEFAULT 1, stock_key TEXT, deduct_stock INTEGER NOT NULL DEFAULT 1, image_path TEXT);
+CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), category TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '☕', active INTEGER NOT NULL DEFAULT 1, stock_key TEXT, deduct_stock INTEGER NOT NULL DEFAULT 1, image_path TEXT, custom_options_json TEXT NOT NULL DEFAULT '[]');
 CREATE TABLE IF NOT EXISTS inventory (stock_key TEXT PRIMARY KEY, name TEXT NOT NULL, unit TEXT NOT NULL, quantity REAL NOT NULL DEFAULT 0, low_alert REAL NOT NULL DEFAULT 0, category TEXT NOT NULL DEFAULT 'raw');
 CREATE TABLE IF NOT EXISTS recipes (product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE, ingredients TEXT NOT NULL, steps TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS members (phone TEXT PRIMARY KEY, name TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0);
@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS recipe_items (
 db.exec(`CREATE TABLE IF NOT EXISTS recipe_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, items_json TEXT NOT NULL, created_at TEXT NOT NULL)`);
 try { db.exec('ALTER TABLE products ADD COLUMN deduct_stock INTEGER NOT NULL DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE products ADD COLUMN image_path TEXT'); } catch {}
+try { db.exec("ALTER TABLE products ADD COLUMN custom_options_json TEXT NOT NULL DEFAULT '[]'"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN sales_channel TEXT NOT NULL DEFAULT 'store'"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN online_platform TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN gp_percent REAL NOT NULL DEFAULT 0"); } catch {}
@@ -213,6 +214,28 @@ const admin = (req,res,next) => {
 const enabled = key => db.prepare('SELECT enabled FROM feature_settings WHERE feature_key=?').get(key)?.enabled === 1;
 const id = () => `TX-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 const fail = (res, message, status=400) => res.status(status).json({error:message});
+const normalizeCustomOptions = raw => (Array.isArray(raw) ? raw : []).slice(0,12).map((group,index) => ({
+  id:String(group?.id||`group_${index+1}`).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40)||`group_${index+1}`,
+  name:String(group?.name||'').trim().slice(0,80),
+  choices:(Array.isArray(group?.choices)?group.choices:[]).slice(0,30).map((choice,choiceIndex) => ({
+    id:String(choice?.id||`choice_${choiceIndex+1}`).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40)||`choice_${choiceIndex+1}`,
+    label:String(choice?.label||'').trim().slice(0,80),
+    price:Math.max(0,Number(choice?.price)||0)
+  })).filter(choice=>choice.label)
+})).filter(group=>group.name&&group.choices.length);
+const selectedCustomOptions = (product, raw={}) => {
+  let groups=[];
+  try { groups=normalizeCustomOptions(JSON.parse(product.custom_options_json||'[]')); } catch {}
+  const custom={},custom_labels=[]; let extra=0;
+  for(const group of groups) {
+    const requested=raw?.custom?.[group.id];
+    const choice=group.choices.find(item=>String(item.id)===String(requested))||group.choices[0];
+    custom[group.id]=choice.id;
+    custom_labels.push(`${group.name}: ${choice.label}`);
+    extra+=choice.price;
+  }
+  return {custom,custom_labels,extra};
+};
 
 // Helper for structured stock checks
 const getRecipeItems = (productId, stockKey) => {
@@ -273,8 +296,10 @@ app.post('/api/orders', (req,res) => {
         const product=findProduct.get(Number(row.productId)), qty=Number(row.quantity);
         if(!product || !product.active || !Number.isInteger(qty) || qty<1 || qty>99) throw Error('Invalid order item');
         const raw=row.options||{};
-        const options={temperature:['hot','iced','blended'].includes(raw.temperature)?raw.temperature:'iced',sweetness:[0,50,100].includes(Number(raw.sweetness))?Number(raw.sweetness):100,milk:'fresh',toppings:Array.isArray(raw.toppings)?raw.toppings.filter(x=>x==='extraShot'):[]};
-        const unitPrice=Number(product.price)+(options.toppings.includes('extraShot')?20:0);
+        const selected=selectedCustomOptions(product,raw);
+        const hasDrinkModifiers=['coffee','tea'].includes(product.category);
+        const options={temperature:hasDrinkModifiers&&['hot','iced','blended'].includes(raw.temperature)?raw.temperature:'',sweetness:hasDrinkModifiers&&[0,50,100].includes(Number(raw.sweetness))?Number(raw.sweetness):100,milk:hasDrinkModifiers?'fresh':'',toppings:hasDrinkModifiers&&Array.isArray(raw.toppings)?raw.toppings.filter(x=>x==='extraShot'):[],custom:selected.custom,custom_labels:selected.custom_labels};
+        const unitPrice=Number(product.price)+(options.toppings.includes('extraShot')?20:0)+selected.extra;
         subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
       }
       const finalDiscount=Math.min(Number(discount),subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
@@ -481,16 +506,16 @@ app.put('/api/admin/products/:id/costing', admin, (req,res) => {
 });
 
 app.post('/api/admin/products', admin, (req,res) => {
-  const {name,price,category,emoji='☕',stockKey=null,deductStock=true,imagePath=null}=req.body||{};
+  const {name,price,category,emoji='☕',stockKey=null,deductStock=true,imagePath=null,customOptions=[]}=req.body||{};
   if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง');
-  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key,deduct_stock,image_path) VALUES (?,?,?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey,deductStock?1:0,imagePath||null);
+  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key,deduct_stock,image_path,custom_options_json) VALUES (?,?,?,?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey,deductStock?1:0,imagePath||null,JSON.stringify(normalizeCustomOptions(customOptions)));
   res.status(201).json({id:result.lastInsertRowid});
 });
 
 app.put('/api/admin/products/:id', admin, (req,res) => {
-  const {name,price,category,emoji='☕',active=true,stockKey=null,deductStock=true,imagePath=null}=req.body||{};
+  const {name,price,category,emoji='☕',active=true,stockKey=null,deductStock=true,imagePath=null,customOptions=[]}=req.body||{};
   if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง');
-  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=?,deduct_stock=?,image_path=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,deductStock?1:0,imagePath||null,req.params.id);
+  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=?,deduct_stock=?,image_path=?,custom_options_json=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,deductStock?1:0,imagePath||null,JSON.stringify(normalizeCustomOptions(customOptions)),req.params.id);
   return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสินค้า',404);
 });
 

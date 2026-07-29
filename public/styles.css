@@ -1406,6 +1406,24 @@ dialog:not(#kds-dialog) #firebase-login-btn {
 .online-channel-fields select { min-height:40px; }
 .online-channel-fields output { min-height:40px; padding:9px 11px; border-radius:8px; background:#eaf5fa; color:#235f78; font-size:11px; font-weight:600; }
 @media (max-width:640px) { .online-channel-fields { grid-template-columns:1fr; } }
+.custom-option-editor { margin:14px 0; padding:14px; border:1px solid #e8d8cc; border-radius:12px; background:#fffaf6; }
+.custom-option-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.custom-option-heading h4 { margin:0 0 3px; color:var(--primary); font-size:13px; }
+#custom-option-groups-editor { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+.custom-option-empty { padding:14px; border:1px dashed #d8c2b2; border-radius:9px; text-align:center; color:#947d70; font-size:12px; }
+.custom-option-card { padding:11px; border:1px solid #eadbd0; border-radius:10px; background:#fff; }
+.custom-option-card-header { display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:8px; align-items:center; }
+.custom-option-card-header input { width:100%; }
+.custom-choice-list { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+.custom-choice-row { display:grid; grid-template-columns:minmax(140px,1fr) 110px 40px; gap:6px; align-items:center; }
+.custom-choice-row input { width:100%; min-height:38px !important; }
+.custom-choice-row button,.custom-option-card-header button { min-height:38px !important; }
+.custom-choice-add { margin-top:8px; width:100%; min-height:38px !important; }
+@media (max-width:640px) {
+  .custom-option-heading { flex-direction:column; }
+  .custom-option-heading button { width:100%; }
+  .custom-choice-row { grid-template-columns:1fr 90px 40px; }
+}
 @media (max-width:640px) {
   dialog:not(#kds-dialog) header { padding-right:54px; }
   .category-toolbar { align-items:stretch; flex-direction:column; }

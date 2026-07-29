@@ -23,6 +23,7 @@ let checkoutPayload = null;
 let currentEditRecipeItems = [];
 let uploadedProductImageData = null;
 let productEditorReturnView = null;
+let currentCustomOptionGroups = [];
 
 // ── Utilities ─────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
@@ -274,12 +275,72 @@ function getStockStatus(product) {
 }
 
 let modifierProduct = null;
-let modifierOptions = { temperature: 'iced', sweetness: 100, milk: 'fresh', toppings: [] };
-function modifierExtra(options) { return options.toppings.includes('extraShot') ? 20 : 0; }
-function modifierSummary(options) { const labels={hot:'ร้อน',iced:'เย็น',blended:'ปั่น',fresh:'นมสด',extraShot:'เพิ่มช็อต'}; return [labels[options.temperature],`หวาน ${options.sweetness}%`,labels[options.milk],...options.toppings.map(x=>labels[x])].join(' · '); }
-function openModifierModal(product) { modifierProduct=product; modifierOptions={temperature:'iced',sweetness:100,milk:'fresh',toppings:[]}; $('#modifier-title').textContent=`${product.emoji} ${product.name}`; renderModifierModal(); $('#modifier-dialog')?.showModal(); }
-function renderModifierModal() { const root=$('#modifier-options'); if(!root || !modifierProduct) return; root.replaceChildren(); const groups=[['temperature','ประเภท',[['hot','ร้อน'],['iced','เย็น'],['blended','ปั่น']]],['sweetness','ระดับความหวาน',[[0,'0%'],[50,'50%'],[100,'100%']]],['milk','ชนิดนม',[['fresh','นมสด']]]]; groups.forEach(([key,label,values])=>{const sec=document.createElement('section');sec.className='modifier-group';const h=document.createElement('h3');h.textContent=label;const row=document.createElement('div');row.className='modifier-choice-row';values.forEach(([value,text])=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.className=String(modifierOptions[key])===String(value)?'selected':'';b.onclick=()=>{modifierOptions[key]=value;renderModifierModal();};row.append(b);});sec.append(h,row);root.append(sec);});const sec=document.createElement('section');sec.className='modifier-group';const h=document.createElement('h3');h.textContent='ท็อปปิ้งเพิ่ม';const row=document.createElement('div');row.className='modifier-choice-row';[['extraShot','เพิ่มช็อต +20']].forEach(([value,text])=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.className=modifierOptions.toppings.includes(value)?'selected':'';b.onclick=()=>{modifierOptions.toppings=modifierOptions.toppings.includes(value)?modifierOptions.toppings.filter(x=>x!==value):[...modifierOptions.toppings,value];renderModifierModal();};row.append(b);});sec.append(h,row);root.append(sec);$('#modifier-price').textContent=money(modifierProduct.price+modifierExtra(modifierOptions)); }
-function confirmModifier() { if(!modifierProduct) return; addToCart(modifierProduct,{...modifierOptions,toppings:[...modifierOptions.toppings]}); $('#modifier-dialog')?.close(); }
+let modifierOptions = { temperature: 'iced', sweetness: 100, milk: 'fresh', toppings: [], custom: {}, custom_labels: [] };
+const makeOptionId = prefix => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
+function normalizeCustomOptionGroups(raw) {
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw || '[]') : raw;
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, 12).map((group, groupIndex) => ({
+      id: String(group.id || `group_${groupIndex}`),
+      name: String(group.name || '').trim(),
+      choices: (Array.isArray(group.choices) ? group.choices : []).slice(0, 20).map((choice, choiceIndex) => ({
+        id: String(choice.id || `choice_${groupIndex}_${choiceIndex}`),
+        label: String(choice.label || '').trim(),
+        price: Math.max(0, Number(choice.price) || 0)
+      })).filter(choice => choice.label)
+    })).filter(group => group.name && group.choices.length);
+  } catch { return []; }
+}
+const productOptionGroups = product => normalizeCustomOptionGroups(product?.custom_options ?? product?.custom_options_json);
+function modifierExtra(options, product) {
+  let extra = (options?.toppings || []).includes('extraShot') ? 20 : 0;
+  productOptionGroups(product).forEach(group => {
+    const choice = group.choices.find(item => item.id === options?.custom?.[group.id]);
+    extra += Number(choice?.price || 0);
+  });
+  return extra;
+}
+function modifierSummary(options, product) {
+  const labels={hot:'ร้อน',iced:'เย็น',blended:'ปั่น',fresh:'นมสด',extraShot:'เพิ่มช็อต'};
+  const base = [labels[options?.temperature], options?.temperature ? `หวาน ${options?.sweetness ?? 100}%` : '', labels[options?.milk], ...(options?.toppings || []).map(x=>labels[x])].filter(Boolean);
+  const custom = Array.isArray(options?.custom_labels) ? options.custom_labels : productOptionGroups(product).map(group => {
+    const choice = group.choices.find(item => item.id === options?.custom?.[group.id]);
+    return choice ? `${group.name}: ${choice.label}` : '';
+  }).filter(Boolean);
+  return [...base, ...custom].join(' · ');
+}
+function openModifierModal(product) {
+  modifierProduct=product;
+  const custom = Object.fromEntries(productOptionGroups(product).map(group => [group.id, group.choices[0]?.id]));
+  modifierOptions={temperature:'iced',sweetness:100,milk:'fresh',toppings:[],custom,custom_labels:[]};
+  $('#modifier-title').textContent=`${product.emoji} ${product.name}`;
+  renderModifierModal();
+  $('#modifier-dialog')?.showModal();
+}
+function renderModifierModal() {
+  const root=$('#modifier-options'); if(!root || !modifierProduct) return; root.replaceChildren();
+  if (['coffee','tea'].includes(modifierProduct.category)) {
+    const groups=[['temperature','ประเภท',[['hot','ร้อน'],['iced','เย็น'],['blended','ปั่น']]],['sweetness','ระดับความหวาน',[[0,'0%'],[50,'50%'],[100,'100%']]],['milk','ชนิดนม',[['fresh','นมสด']]]];
+    groups.forEach(([key,label,values])=>{const sec=document.createElement('section');sec.className='modifier-group';const h=document.createElement('h3');h.textContent=label;const row=document.createElement('div');row.className='modifier-choice-row';values.forEach(([value,text])=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.className=String(modifierOptions[key])===String(value)?'selected':'';b.onclick=()=>{modifierOptions[key]=value;renderModifierModal();};row.append(b);});sec.append(h,row);root.append(sec);});
+    const sec=document.createElement('section');sec.className='modifier-group';const h=document.createElement('h3');h.textContent='ท็อปปิ้งเพิ่ม';const row=document.createElement('div');row.className='modifier-choice-row';
+    [['extraShot','เพิ่มช็อต +20']].forEach(([value,text])=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.className=modifierOptions.toppings.includes(value)?'selected':'';b.onclick=()=>{modifierOptions.toppings=modifierOptions.toppings.includes(value)?modifierOptions.toppings.filter(x=>x!==value):[...modifierOptions.toppings,value];renderModifierModal();};row.append(b);});sec.append(h,row);root.append(sec);
+  } else {
+    modifierOptions.temperature=''; modifierOptions.milk=''; modifierOptions.toppings=[];
+  }
+  productOptionGroups(modifierProduct).forEach(group => {
+    const sec=document.createElement('section');sec.className='modifier-group';const h=document.createElement('h3');h.textContent=group.name;const row=document.createElement('div');row.className='modifier-choice-row';
+    group.choices.forEach(choice => { const button=document.createElement('button');button.type='button';button.textContent=`${choice.label}${choice.price ? ` +${money(choice.price)}` : ''}`;button.className=modifierOptions.custom[group.id]===choice.id?'selected':'';button.onclick=()=>{modifierOptions.custom[group.id]=choice.id;renderModifierModal();};row.append(button); });
+    sec.append(h,row);root.append(sec);
+  });
+  $('#modifier-price').textContent=money(modifierProduct.price+modifierExtra(modifierOptions,modifierProduct));
+}
+function confirmModifier() {
+  if(!modifierProduct) return;
+  const customLabels=productOptionGroups(modifierProduct).map(group=>{const choice=group.choices.find(item=>item.id===modifierOptions.custom[group.id]);return choice?`${group.name}: ${choice.label}`:'';}).filter(Boolean);
+  addToCart(modifierProduct,{...modifierOptions,toppings:[...modifierOptions.toppings],custom:{...modifierOptions.custom},custom_labels:customLabels});
+  $('#modifier-dialog')?.close();
+}
 
 function renderProducts() {
   renderCategoryTabs();
@@ -340,7 +401,7 @@ function renderProducts() {
     let pressTimer, longPressed = false;
     card.onclick = () => {
       if (longPressed) { longPressed = false; return; }
-      if (['coffee', 'tea'].includes(p.category)) openModifierModal(p);
+      if (['coffee', 'tea'].includes(p.category) || productOptionGroups(p).length) openModifierModal(p);
       else addToCart(p, { temperature:'', sweetness:100, milk:'', toppings:[] });
     };
     card.onpointerdown = () => { longPressed = false; pressTimer = setTimeout(() => { pressTimer = null; longPressed = true; showRecipePopover(p); }, 600); };
@@ -416,7 +477,7 @@ function addToCart(product, options = { temperature:'iced', sweetness:100, milk:
   const key = `${product.id}:${JSON.stringify(options)}`;
   const existing = state.cart.find(x => x.key === key);
   if (existing) existing.qty++;
-  else state.cart.push({ product, options, unitPrice: product.price + modifierExtra(options), key, qty: 1 });
+  else state.cart.push({ product, options, unitPrice: product.price + modifierExtra(options, product), key, qty: 1 });
   renderCart();
   const badge = $('#count');
   if (badge) { badge.classList.remove('pulse'); void badge.offsetWidth; badge.classList.add('pulse'); }
@@ -435,7 +496,8 @@ function renderCart() {
       row.className = 'line';
 
       const info = document.createElement('span');
-      info.textContent = `${item.product.name} — ${modifierSummary(item.options || {temperature:'iced',sweetness:100,milk:'fresh',toppings:[]})}`;
+      const optionSummary = modifierSummary(item.options || {}, item.product);
+      info.textContent = `${item.product.name}${optionSummary ? ` — ${optionSummary}` : ''}`;
 
       const minus = document.createElement('button');
       minus.textContent = '−';
@@ -1365,6 +1427,42 @@ function renderEditRecipeItems() {
   }
 }
 
+function renderCustomOptionEditor() {
+  const root = $('#custom-option-groups-editor');
+  if (!root) return;
+  root.replaceChildren();
+  if (!currentCustomOptionGroups.length) {
+    root.innerHTML = '<div class="custom-option-empty">ยังไม่มี Customize สำหรับเมนูนี้ กด “เพิ่มกลุ่มตัวเลือก” เพื่อเริ่มสร้าง</div>';
+    return;
+  }
+  currentCustomOptionGroups.forEach(group => {
+    const card = document.createElement('article'); card.className = 'custom-option-card';
+    const header = document.createElement('div'); header.className = 'custom-option-card-header';
+    const name = document.createElement('input'); name.placeholder = 'ชื่อกลุ่ม เช่น ขนาด'; name.value = group.name;
+    name.oninput = () => { group.name = name.value; };
+    const removeGroup = document.createElement('button'); removeGroup.type='button'; removeGroup.className='secondary-btn'; removeGroup.textContent='ลบกลุ่ม';
+    removeGroup.onclick = () => { currentCustomOptionGroups = currentCustomOptionGroups.filter(item => item !== group); renderCustomOptionEditor(); };
+    header.append(name, removeGroup);
+    const choices = document.createElement('div'); choices.className = 'custom-choice-list';
+    group.choices.forEach(choice => {
+      const row=document.createElement('div'); row.className='custom-choice-row';
+      const label=document.createElement('input'); label.placeholder='ชื่อตัวเลือก'; label.value=choice.label; label.oninput=()=>{choice.label=label.value;};
+      const price=document.createElement('input'); price.type='number'; price.min='0'; price.step='0.5'; price.placeholder='ราคาเพิ่ม'; price.value=choice.price; price.oninput=()=>{choice.price=Math.max(0,Number(price.value)||0);};
+      const remove=document.createElement('button'); remove.type='button'; remove.className='secondary-btn'; remove.textContent='×'; remove.title='ลบตัวเลือก';
+      remove.onclick=()=>{group.choices=group.choices.filter(item=>item!==choice);renderCustomOptionEditor();};
+      row.append(label,price,remove);choices.append(row);
+    });
+    const addChoice=document.createElement('button'); addChoice.type='button'; addChoice.className='secondary-btn custom-choice-add'; addChoice.textContent='＋ เพิ่มตัวเลือก';
+    addChoice.onclick=()=>{group.choices.push({id:makeOptionId('choice'),label:'',price:0});renderCustomOptionEditor();};
+    card.append(header,choices,addChoice);root.append(card);
+  });
+}
+
+$('#btn-add-custom-option-group') && ($('#btn-add-custom-option-group').onclick = () => {
+  currentCustomOptionGroups.push({id:makeOptionId('group'),name:'',choices:[{id:makeOptionId('choice'),label:'',price:0},{id:makeOptionId('choice'),label:'',price:0}]});
+  renderCustomOptionEditor();
+});
+
 async function openProductEditor(product) {
   // Close settings → bounce to home register screen, then show editor overlay
   const settingsDialog = $('#settings');
@@ -1378,6 +1476,7 @@ async function openProductEditor(product) {
   if ($('#edit-prod-image-upload-status')) $('#edit-prod-image-upload-status').textContent = uploadedProductImageData ? '✓ ใช้รูปที่อัปโหลดไว้' : 'รองรับ JPG, PNG และ WebP ระบบจะย่อรูปให้อัตโนมัติ';
 
   if (product) {
+    currentCustomOptionGroups = productOptionGroups(product);
     // Edit mode
     if ($('#edit-prod-id')) $('#edit-prod-id').value = product.id;
     if ($('#edit-prod-name')) $('#edit-prod-name').value = product.name;
@@ -1401,6 +1500,7 @@ async function openProductEditor(product) {
       if ($('#edit-recipe-description')) $('#edit-recipe-description').value = '';
     }
   } else {
+    currentCustomOptionGroups = [];
     // Add mode
     if ($('#edit-prod-id')) $('#edit-prod-id').value = '';
     if ($('#edit-prod-name')) $('#edit-prod-name').value = '';
@@ -1419,6 +1519,7 @@ async function openProductEditor(product) {
   }
 
   renderEditRecipeItems();
+  renderCustomOptionEditor();
   updateProductImagePreview();
   $('#product-edit-dialog')?.showModal();
 }
@@ -1561,18 +1662,19 @@ if (saveProductBtn) {
     const active = !!$('#edit-prod-active')?.checked;
     const deductStock = !!$('#edit-prod-deduct-stock')?.checked;
     const description = ($('#edit-recipe-description')?.value || '').trim();
+    const customOptions = normalizeCustomOptionGroups(currentCustomOptionGroups);
 
     if (!name || isNaN(price) || price < 0) return alert('กรอกชื่อสินค้าและราคาให้ถูกต้อง');
 
     try {
       let productId;
       if (id) {
-        await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, category, emoji, active, deductStock, imagePath, imageData }) });
+        await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, category, emoji, active, deductStock, imagePath, imageData, customOptions }) });
         await api(`/api/admin/products/${id}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         productId = Number(id);
         showNotice('บันทึกข้อมูลสินค้าสำเร็จ!');
       } else {
-        const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, category, emoji, deductStock, imagePath, imageData }) });
+        const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, category, emoji, deductStock, imagePath, imageData, customOptions }) });
         productId = res.id;
         await api(`/api/admin/products/${productId}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         showNotice('เพิ่มสินค้าใหม่สำเร็จ!');
@@ -1785,7 +1887,7 @@ $('#btn-delete-member') && ($('#btn-delete-member').onclick = async () => {
 $('#modifier-confirm-btn') && ($('#modifier-confirm-btn').onclick = confirmModifier);
 
 let kdsTimer = null;
-function optionText(raw) { try { const x=typeof raw==='string'?JSON.parse(raw):raw; return modifierSummary({temperature:x?.temperature||'iced',sweetness:x?.sweetness??100,milk:x?.milk||'fresh',toppings:x?.toppings||[]}); } catch { return ''; } }
+function optionText(raw) { try { const x=typeof raw==='string'?JSON.parse(raw):raw; return modifierSummary({temperature:x?.temperature||'',sweetness:x?.sweetness??100,milk:x?.milk||'',toppings:x?.toppings||[],custom_labels:x?.custom_labels||[]}); } catch { return ''; } }
 function kdsWait(createdAt) { const m=Math.max(0,Math.floor((Date.now()-new Date(createdAt).getTime())/60000)); return m ? `${m} นาที` : 'เพิ่งเข้าคิว'; }
 async function renderKdsGrid() { const root=$('#kds-grid'); if(!root) return; try { const rows=await api('/api/kds'); root.replaceChildren(); if(!rows.length) { root.innerHTML='<div class="empty-state">ยังไม่มีคิวชง</div>'; return; } rows.forEach(x=>{ const card=document.createElement('article');card.className=`kds-card ${x.status}`; const queue=document.createElement('strong');queue.className='kds-queue';queue.textContent=`#${String(x.order_id).slice(-5)}`; const name=document.createElement('h3');name.textContent=`${x.name} × ${x.quantity}`; const opts=document.createElement('p');opts.className='kds-options';opts.textContent=optionText(x.options_json); const wait=document.createElement('p');wait.className='kds-wait';wait.textContent=`รอ ${kdsWait(x.created_at)}`; const action=document.createElement('button');action.type='button';const next=x.status==='pending'?'cooking':x.status==='cooking'?'completed':null;action.textContent=x.status==='pending'?'เริ่มชง':x.status==='cooking'?'พร้อมเสิร์ฟ':'พร้อมเสิร์ฟแล้ว';action.disabled=!next;action.onclick=async()=>{try{await api(`/api/kds/items/${x.id}/status`,{method:'PUT',body:JSON.stringify({status:next})});await renderKdsGrid();}catch(e){showNotice(e.message,'error');}};card.append(queue,name,opts,wait,action);root.append(card); }); } catch(e) { root.innerHTML='<div class="empty-state">โหลดคิวชงไม่สำเร็จ</div>'; } }
 function openKdsMode() { if(!state.features.kds) return showNotice('กรุณาเปิดฟังก์ชันคิวชงในการตั้งค่า','error'); $('#kds-dialog')?.showModal(); renderKdsGrid(); clearInterval(kdsTimer); kdsTimer=setInterval(renderKdsGrid,10000); }

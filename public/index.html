@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260729-6">
+  <link rel="stylesheet" href="./styles.css?v=20260729-7">
 </head>
 <body>
   <header class="topbar">
@@ -366,6 +366,17 @@
           <p class="hint" style="margin:4px 0 0 24px;">ปิดตัวเลือกนี้สำหรับเมนูที่ไม่ต้องตรวจสอบหรือหักวัตถุดิบจาก stock</p>
         </div>
 
+        <section class="custom-option-editor">
+          <div class="custom-option-heading">
+            <div>
+              <h4>🧩 Customize ตัวเลือกเฉพาะเมนู</h4>
+              <p class="hint">สร้างกลุ่ม เช่น ขนาด ซอส ท็อปปิ้ง หรือระดับความสุก พร้อมกำหนดราคาเพิ่มได้</p>
+            </div>
+            <button type="button" id="btn-add-custom-option-group" class="secondary-btn">＋ เพิ่มกลุ่มตัวเลือก</button>
+          </div>
+          <div id="custom-option-groups-editor"></div>
+        </section>
+
         <!-- Recipe items list -->
         <div style="border-top:1px dashed #eadfd5; margin-top:14px; padding-top:14px; margin-bottom: 14px;">
           <h4 style="margin:0 0 8px; font-size:13px; font-weight:700; color:var(--primary);">📦 วัตถุดิบและอุปกรณ์ในสูตรชง (เพื่อหักลบสต็อก)</h4>
@@ -636,7 +647,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260729-6"></script>
-  <script src="./app.js?v=20260729-6"></script>
+  <script src="./firebase-client.js?v=20260729-7"></script>
+  <script src="./app.js?v=20260729-7"></script>
 </body>
 </html>
