@@ -26,6 +26,29 @@ let currentEditRecipeItems = [];
 const $ = s => document.querySelector(s);
 const money = n => `฿${Number(n || 0).toFixed(2)}`;
 const displayName = item => item?.name_th || item?.name || '';
+const menuImageFor = product => {
+  if (product?.image_path) return product.image_path;
+  const name = displayName(product).toLowerCase();
+  const matches = [
+    [['เอสเพรสโซ่ร้อน', 'espresso (hot)', 'hot espresso'], 'menu-images/espresso-hot.png'],
+    [['เอสเพรสโซ่เย็น', 'iced espresso'], 'menu-images/espresso-iced.png'],
+    [['อเมริกาโน่', 'americano'], 'menu-images/americano-iced.png'],
+    [['คาปูชิโน่', 'cappuccino'], 'menu-images/cappuccino-hot.png'],
+    [['คาราเมลมัคคิอาโต้', 'caramel macchiato'], 'menu-images/caramel-macchiato-iced.png'],
+    [['มัทฉะ', 'matcha'], 'menu-images/matcha-latte.png'],
+    [['มอคค่า', 'mocha'], 'menu-images/mocha-iced.png'],
+    [['ลาเต้', 'latte'], 'menu-images/latte-iced.png'],
+    [['ชาไทย', 'thai tea'], 'menu-images/thai-tea.png'],
+    [['ไข่กระทะ'], 'menu-images/pan-fried-eggs.png'],
+    [['ทับทิมกรอบ'], 'menu-images/tub-tim-krob.png'],
+    [['ชีสเบอร์เกอร์'], 'menu-images/cheese-burger.png'],
+    [['ไส้กรอก'], 'menu-images/sausage-burger.png'],
+    [['เบคอน'], 'menu-images/bacon-burger.png'],
+    [['แฮมเบอร์เกอร์หมู'], 'menu-images/pork-burger-set.png'],
+    [['เบอร์เกอร์', 'hamburger'], 'menu-images/classic-burger.png']
+  ];
+  return matches.find(([keywords]) => keywords.some(keyword => name.includes(keyword)))?.[1] || '';
+};
 
 function showNotice(msg, type = 'success') {
   const el = $('#notice');
@@ -242,9 +265,10 @@ function renderProducts() {
     card.className = 'product' + (status === 'out' || status === 'missing-recipe' ? ' product-out' : '');
     card.disabled = status === 'out' || status === 'missing-recipe';
 
-    const visual = p.image_path ? document.createElement('img') : document.createElement('span');
-    if (p.image_path) {
-      visual.src = p.image_path;
+    const imagePath = menuImageFor(p);
+    const visual = imagePath ? document.createElement('img') : document.createElement('span');
+    if (imagePath) {
+      visual.src = imagePath;
       visual.alt = p.name;
       visual.className = 'product-image';
       visual.loading = 'lazy';
