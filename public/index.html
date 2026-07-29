@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260729-4">
+  <link rel="stylesheet" href="./styles.css?v=20260729-5">
 </head>
 <body>
   <header class="topbar">
@@ -71,6 +71,11 @@
         <div class="empty-state">เลือกรายการจากเมนูด้านซ้าย</div>
       </div>
       <div class="checkout-controls">
+        <fieldset class="sale-channel-toggle">
+          <legend>ประเภทการขาย</legend>
+          <label><input type="radio" name="sale-channel" value="store" checked> 🏪 หน้าร้าน</label>
+          <label><input type="radio" name="sale-channel" value="online"> 🌐 ออนไลน์</label>
+        </fieldset>
         <label>ส่วนลด <span>บาท</span>
           <input id="discount" type="number" min="0" value="0">
         </label>
@@ -128,8 +133,16 @@
     <article>
       <span class="dashboard-icon">▤</span>
       <div>
-        <small>จำนวนบิล</small>
+        <small>บิลหน้าร้าน</small>
         <b id="orders">0</b>
+      </div>
+    </article>
+    <article>
+      <span class="dashboard-icon">🌐</span>
+      <div>
+        <small>ยอดออนไลน์วันนี้ (แยกจากหน้าร้าน)</small>
+        <b id="online-sales">฿0.00</b>
+        <small id="online-orders">0 บิล</small>
       </div>
     </article>
     <article class="report-dashboard-trigger" style="cursor:pointer;" id="reportsBtn">
@@ -619,7 +632,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260729-4"></script>
-  <script src="./app.js?v=20260729-4"></script>
+  <script src="./firebase-client.js?v=20260729-5"></script>
+  <script src="./app.js?v=20260729-5"></script>
 </body>
 </html>

@@ -102,8 +102,10 @@ async function load() {
     const todayStats = await api('/api/reports/today');
     const salesEl = $('#sales');
     const ordersEl = $('#orders');
-    if (salesEl) salesEl.textContent = money(todayStats.sales);
-    if (ordersEl) ordersEl.textContent = todayStats.orders;
+    if (salesEl) salesEl.textContent = money(todayStats.storeSales ?? todayStats.sales);
+    if (ordersEl) ordersEl.textContent = todayStats.storeOrders ?? todayStats.orders;
+    if ($('#online-sales')) $('#online-sales').textContent = money(todayStats.onlineSales);
+    if ($('#online-orders')) $('#online-orders').textContent = `${todayStats.onlineOrders || 0} บิล`;
 
     await renderQuickBrewQueue();
   } catch (e) {
@@ -532,12 +534,14 @@ async function checkout() {
   const disc = memberDiscount + manualDisc;
   const total = subtotal - disc;
   const payType = $('#payment')?.value || 'cash';
+  const salesChannel = document.querySelector('input[name="sale-channel"]:checked')?.value || 'store';
   const redeemFreeCup = memberDiscount > 0;
 
   checkoutPayload = {
     items: state.cart.map(x => ({ productId: x.product.id, quantity: x.qty, options: x.options })),
     discount: disc,
     paymentType: payType,
+    salesChannel,
     memberPhone: currentMember?.phone || null,
     received: total,
     changeDue: 0,
@@ -608,6 +612,7 @@ function showReceipt(order) {
   set('#receipt-discount', money(order.discount));
   set('#receipt-total', money(order.total));
   set('#receipt-payment', order.paymentType === 'cash' ? 'เงินสด 💵' : 'สแกน QR 📱');
+  set('#receipt-tx', `บิล: ${order.id} · ${order.salesChannel === 'online' || order.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'}`);
 
   const cashRows = ['#receipt-cash-received-row', '#receipt-cash-change-row'];
   cashRows.forEach(s => { const el = $(s); if (el) el.style.display = order.paymentType === 'cash' ? 'flex' : 'none'; });
@@ -742,8 +747,10 @@ if (reportsBtn) {
         api('/api/reports/transactions')
       ]);
 
-      const totalSales = transactions.reduce((s, o) => s + o.total, 0);
-      const totalBills = transactions.length;
+      const storeTransactions = transactions.filter(order => (order.sales_channel || 'store') !== 'online');
+      const onlineTransactions = transactions.filter(order => order.sales_channel === 'online');
+      const totalSales = storeTransactions.reduce((s, o) => s + o.total, 0);
+      const totalBills = storeTransactions.length;
       const avgBill = totalBills ? totalSales / totalBills : 0;
 
       const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
@@ -796,8 +803,9 @@ if (reportsBtn) {
       // Payment methods
       const pmEl = $('#rep-payment-methods');
       if (pmEl) {
-        const cashSales = analytics.paymentSales.find(x => x.payment_type === 'cash')?.sales || 0;
-        const qrSales = analytics.paymentSales.find(x => x.payment_type === 'qr')?.sales || 0;
+        const cashSales = storeTransactions.filter(x => x.payment_type === 'cash').reduce((sum,x)=>sum+x.total,0);
+        const qrSales = storeTransactions.filter(x => x.payment_type === 'qr').reduce((sum,x)=>sum+x.total,0);
+        const onlineSales = onlineTransactions.reduce((sum,x)=>sum+x.total,0);
         pmEl.innerHTML = `
           <div style="text-align:center;flex:1;">
             <div style="font-size:11px;color:#888;">💵 เงินสด</div>
@@ -807,6 +815,11 @@ if (reportsBtn) {
           <div style="text-align:center;flex:1;">
             <div style="font-size:11px;color:#888;">📱 สแกน QR</div>
             <div style="font-size:20px;font-weight:700;color:var(--primary);margin-top:4px;">${money(qrSales)}</div>
+          </div>
+          <div style="border-left:1px dashed #dfcec0;"></div>
+          <div style="text-align:center;flex:1;">
+            <div style="font-size:11px;color:#888;">🌐 ออนไลน์ (ไม่รวมหน้าร้าน)</div>
+            <div style="font-size:20px;font-weight:700;color:#236b8e;margin-top:4px;">${money(onlineSales)}</div>
           </div>`;
       }
 
@@ -831,7 +844,7 @@ if (reportsBtn) {
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
                 <strong style="color:var(--primary);">${money(tx.total)}</strong>
-                <span style="font-size:10px;background:#f1ebe5;padding:2px 6px;border-radius:4px;">${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}</span>
+                <span style="font-size:10px;background:${tx.sales_channel === 'online' ? '#dff2fb' : '#f1ebe5'};padding:2px 6px;border-radius:4px;">${tx.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'} · ${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}</span>
               </div>`;
             row.onclick = () => { $('#reports-dialog')?.close(); showReceipt({ ...tx, items: tx.items }); };
             txEl.append(row);
