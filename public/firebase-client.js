@@ -126,7 +126,7 @@
         const custom={},custom_labels=[];let customExtra=0;
         groups.forEach(group=>{
           const choices=Array.isArray(group.choices)?group.choices:[];
-          const selected=choices.find(choice=>String(choice.id)===String(i.options?.custom?.[group.id]))||choices[0];
+          const selected=choices.find(choice=>String(choice.id)===String(i.options?.custom?.[group.id]));
           if(selected){custom[group.id]=selected.id;custom_labels.push(`${group.name}: ${selected.label}`);customExtra+=Math.max(0,Number(selected.price)||0);}
         });
         const o={custom,custom_labels};

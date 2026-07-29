@@ -234,10 +234,12 @@ const selectedCustomOptions = (product, raw={}) => {
   const custom={},custom_labels=[]; let extra=0;
   for(const group of groups) {
     const requested=raw?.custom?.[group.id];
-    const choice=group.choices.find(item=>String(item.id)===String(requested))||group.choices[0];
-    custom[group.id]=choice.id;
-    custom_labels.push(`${group.name}: ${choice.label}`);
-    extra+=choice.price;
+    const choice=group.choices.find(item=>String(item.id)===String(requested));
+    if(choice) {
+      custom[group.id]=choice.id;
+      custom_labels.push(`${group.name}: ${choice.label}`);
+      extra+=choice.price;
+    }
   }
   return {custom,custom_labels,extra};
 };

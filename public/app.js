@@ -318,7 +318,7 @@ const productOptionGroups = product => normalizeCustomOptionGroups(product?.cust
 function sanitizeCartOptions(product,raw={}) {
   const custom={},custom_labels=[];
   productOptionGroups(product).forEach(group=>{
-    const choice=group.choices.find(item=>String(item.id)===String(raw?.custom?.[group.id]))||group.choices[0];
+    const choice=group.choices.find(item=>String(item.id)===String(raw?.custom?.[group.id]));
     if(choice){custom[group.id]=choice.id;custom_labels.push(`${group.name}: ${choice.label}`);}
   });
   return {custom,custom_labels};
@@ -340,8 +340,7 @@ function modifierSummary(options, product) {
 }
 function openModifierModal(product) {
   modifierProduct=product;
-  const custom = Object.fromEntries(productOptionGroups(product).map(group => [group.id, group.choices[0]?.id]));
-  modifierOptions={custom,custom_labels:[]};
+  modifierOptions={custom:{},custom_labels:[]};
   $('#modifier-title').textContent=`${product.emoji} ${product.name}`;
   renderModifierModal();
   $('#modifier-dialog')?.showModal();
@@ -350,6 +349,7 @@ function renderModifierModal() {
   const root=$('#modifier-options'); if(!root || !modifierProduct) return; root.replaceChildren();
   productOptionGroups(modifierProduct).forEach(group => {
     const sec=document.createElement('section');sec.className='modifier-group';const h=document.createElement('h3');h.textContent=group.name;const row=document.createElement('div');row.className='modifier-choice-row';
+    const none=document.createElement('button');none.type='button';none.textContent='ไม่เลือก';none.className=modifierOptions.custom[group.id]?'':'selected';none.onclick=()=>{delete modifierOptions.custom[group.id];renderModifierModal();};row.append(none);
     group.choices.forEach(choice => { const button=document.createElement('button');button.type='button';button.textContent=`${choice.label}${choice.price ? ` +${money(choice.price)}` : ''}`;button.className=modifierOptions.custom[group.id]===choice.id?'selected':'';button.onclick=()=>{modifierOptions.custom[group.id]=choice.id;renderModifierModal();};row.append(button); });
     sec.append(h,row);root.append(sec);
   });

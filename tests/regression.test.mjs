@@ -33,6 +33,19 @@ test('checkout security and reusable options exist in both backends', async () =
   assert.match(server, /\+7 hours/);
 });
 
+test('custom menu options start unselected in UI and both backends', async () => {
+  const [app, server, firebase] = await Promise.all([
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  assert.match(app, /modifierOptions=\{custom:\{\},custom_labels:\[\]\}/);
+  assert.match(app, /none\.textContent='ไม่เลือก'/);
+  for (const source of [app, server, firebase]) {
+    assert.doesNotMatch(source, /find\([^;\n]+\)\|\|(?:group\.)?choices\[0\]/);
+  }
+});
+
 test('Firebase migration includes options, online prices and boolean conversion', async () => {
   const html = await read('public/firebase-import.html');
   assert.match(html, /optionGroups/);
