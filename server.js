@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS inventory (stock_key TEXT PRIMARY KEY, name TEXT NOT 
 CREATE TABLE IF NOT EXISTS recipes (product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE, ingredients TEXT NOT NULL, steps TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS members (phone TEXT PRIMARY KEY, name TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS feature_settings (feature_key TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1);
-CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, subtotal REAL NOT NULL, discount REAL NOT NULL, total REAL NOT NULL, payment_type TEXT NOT NULL, member_phone TEXT REFERENCES members(phone));
+CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, subtotal REAL NOT NULL, discount REAL NOT NULL, total REAL NOT NULL, payment_type TEXT NOT NULL, sales_channel TEXT NOT NULL DEFAULT 'store', member_phone TEXT REFERENCES members(phone));
 CREATE TABLE IF NOT EXISTS order_items (id INTEGER PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id), product_id INTEGER, name TEXT NOT NULL, unit_price REAL NOT NULL, quantity INTEGER NOT NULL, options_json TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE IF NOT EXISTS stock_movements (id INTEGER PRIMARY KEY, stock_key TEXT NOT NULL REFERENCES inventory(stock_key), quantity REAL NOT NULL, reason TEXT NOT NULL, order_id TEXT REFERENCES orders(id), created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS categories (category_key TEXT PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS recipe_items (
 db.exec(`CREATE TABLE IF NOT EXISTS recipe_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, items_json TEXT NOT NULL, created_at TEXT NOT NULL)`);
 try { db.exec('ALTER TABLE products ADD COLUMN deduct_stock INTEGER NOT NULL DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE products ADD COLUMN image_path TEXT'); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN sales_channel TEXT NOT NULL DEFAULT 'store'"); } catch {}
 db.prepare("UPDATE products SET image_path='menu-images/matcha-latte.png' WHERE image_path IS NULL AND lower(name) LIKE '%matcha%'").run();
 db.prepare("UPDATE products SET image_path='menu-images/thai-tea.png' WHERE image_path IS NULL AND (name LIKE '%ชาไทย%' OR lower(name) LIKE '%thai tea%')").run();
 db.prepare("UPDATE products SET image_path='menu-images/espresso-hot.png' WHERE image_path IS NULL AND (name LIKE '%เอสเพรสโซ่ร้อน%' OR lower(name) LIKE '%espresso%hot%')").run();
@@ -233,7 +234,7 @@ app.get('/api/costing', (_,res) => {
 });
 app.get('/api/orders', admin, (req,res) => res.json(db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 100').all()));
 
-app.get('/api/reports/today', (_,res) => res.json(db.prepare("SELECT count(*) orders, coalesce(sum(total),0) sales FROM orders WHERE date(created_at,'localtime')=date('now','localtime')").get()));
+app.get('/api/reports/today', (_,res) => res.json(db.prepare("SELECT count(CASE WHEN sales_channel!='online' THEN 1 END) storeOrders, coalesce(sum(CASE WHEN sales_channel!='online' THEN total ELSE 0 END),0) storeSales, count(CASE WHEN sales_channel='online' THEN 1 END) onlineOrders, coalesce(sum(CASE WHEN sales_channel='online' THEN total ELSE 0 END),0) onlineSales, count(CASE WHEN sales_channel!='online' THEN 1 END) orders, coalesce(sum(CASE WHEN sales_channel!='online' THEN total ELSE 0 END),0) sales FROM orders WHERE date(created_at,'localtime')=date('now','localtime')").get()));
 app.get('/api/kds', (_,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); res.json(db.prepare("SELECT oi.id,oi.name,oi.quantity,oi.options_json,oi.status,o.id order_id,o.created_at FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE date(o.created_at,'localtime')=date('now','localtime') ORDER BY o.created_at DESC LIMIT 100").all()); });
 app.put('/api/kds/items/:id/status', (req,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); const status=req.body?.status; if(!['pending','cooking','completed'].includes(status)) return fail(res,'สถานะไม่ถูกต้อง'); const r=db.prepare('UPDATE order_items SET status=? WHERE id=?').run(status,req.params.id); return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการคิวชง',404); });
 app.delete('/api/kds/completed', (_,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); const r=db.prepare("DELETE FROM order_items WHERE status='completed'").run(); res.json({ok:true,cleared:r.changes}); });
@@ -259,7 +260,7 @@ app.get('/api/recipes', (_,res) => {
 });
 
 app.post('/api/orders', (req,res) => {
-  const {items, discount=0, paymentType, memberPhone=null, received=0, changeDue=0, redeemFreeCup=false} = req.body || {};
+  const {items, discount=0, paymentType, salesChannel='store', memberPhone=null, received=0, changeDue=0, redeemFreeCup=false} = req.body || {};
   if (!Array.isArray(items) || !items.length || !['cash','qr'].includes(paymentType)) return fail(res,'Invalid payment data');
   if (!Number.isFinite(Number(discount)) || Number(discount)<0) return fail(res,'Invalid discount');
   try {
@@ -275,7 +276,8 @@ app.post('/api/orders', (req,res) => {
       }
       const finalDiscount=Math.min(Number(discount),subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
       for(const {product,qty} of lines) if(product.deduct_stock) for(const item of requireRecipe(product)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
-      db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,memberPhone||null,received,changeDue);
+      const normalizedSalesChannel=salesChannel==='online'?'online':'store';
+      db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, sales_channel, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,normalizedSalesChannel,memberPhone||null,received,changeDue);
       for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name_th||product.name,unitPrice,qty,JSON.stringify(options)); if(product.deduct_stock) for(const item of requireRecipe(product)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
       
       let memberPoints = 0;
@@ -299,7 +301,7 @@ app.post('/api/orders', (req,res) => {
           memberPoints = newPoints;
         }
       }
-      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,memberPhone,received,changeDue,memberPoints,items:lines.map(x=>({name:x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
+      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,salesChannel:normalizedSalesChannel,memberPhone,received,changeDue,memberPoints,items:lines.map(x=>({name:x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
     })();
     res.status(201).json(order);
   } catch(e) { fail(res,e.message); }
@@ -412,6 +414,7 @@ app.get('/api/reports/transactions', (_, res) => {
         discount: o.discount,
         total: o.total,
         payment_type: o.payment_type,
+        sales_channel: o.sales_channel || 'store',
         member_phone: o.member_phone,
         received: o.received,
         change_due: o.change_due,

@@ -21,12 +21,14 @@ let adminPin = '';
 let currentMember = null;
 let checkoutPayload = null;
 let currentEditRecipeItems = [];
+let uploadedProductImageData = null;
 
 // ── Utilities ─────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
 const money = n => `฿${Number(n || 0).toFixed(2)}`;
 const displayName = item => item?.name_th || item?.name || '';
 const menuImageFor = product => {
+  if (product?.image_data) return product.image_data;
   if (product?.image_path) return String(product.image_path).replace(/^\/+/, '');
   const name = displayName(product).toLowerCase();
   const matches = [
@@ -100,8 +102,10 @@ async function load() {
     const todayStats = await api('/api/reports/today');
     const salesEl = $('#sales');
     const ordersEl = $('#orders');
-    if (salesEl) salesEl.textContent = money(todayStats.sales);
-    if (ordersEl) ordersEl.textContent = todayStats.orders;
+    if (salesEl) salesEl.textContent = money(todayStats.storeSales ?? todayStats.sales);
+    if (ordersEl) ordersEl.textContent = todayStats.storeOrders ?? todayStats.orders;
+    if ($('#online-sales')) $('#online-sales').textContent = money(todayStats.onlineSales);
+    if ($('#online-orders')) $('#online-orders').textContent = `${todayStats.onlineOrders || 0} บิล`;
 
     await renderQuickBrewQueue();
   } catch (e) {
@@ -157,7 +161,8 @@ function renderTopMenu() {
   if (!list) return;
   const items = [
     ['pos', '🛒 หน้าขาย'], ['kds', '☕ คิวชง / Kitchen View'], ['products', '🍕 จัดการเมนูและสูตร'],
-    ['inventory', '📦 สต็อกและต้นทุน'], ['pricing', '💰 ราคาออนไลน์ / GP'], ['members', '👤 สมาชิก'], ['reports', '📊 รายงาน']
+    ['inventory', '📦 สต็อกและต้นทุน'], ['pricing', '💰 ราคาออนไลน์ / GP'], ['members', '👤 สมาชิก'], ['reports', '📊 รายงาน'],
+    ['settings', '⚙️ ตั้งค่าร้าน']
   ];
   list.replaceChildren(...items.filter(([key]) => key === 'pos' || state.features[key] !== false).map(([key,label]) => {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
@@ -185,6 +190,7 @@ function openModule(key) {
   if (key === 'pos') { window.scrollTo({top:0,behavior:'smooth'}); return; }
   if (key === 'reports') { const rb = $('#reportsBtn'); rb && rb.click(); return; }
   if (key === 'kds') { openKdsMode(); return; }
+  if (key === 'settings') { openAdminWindow('tab-features', 'ตั้งค่าร้าน'); return; }
   if (key === 'inventory' || key === 'members' || key === 'recipes' || key === 'products' || key === 'pricing') {
     const tab = key === 'products' || key === 'recipes' ? 'tab-products' : key === 'pricing' ? 'tab-pricing' : key === 'members' ? 'tab-members' : 'tab-inventory';
     const title = key === 'products' || key === 'recipes' ? 'จัดการเมนูและสูตรชง' : key === 'pricing' ? 'ราคาออนไลน์และต้นทุน' : key === 'members' ? 'ระบบสมาชิก' : 'สต็อกวัตถุดิบ';
@@ -349,6 +355,11 @@ function showRecipePopover(product) {
 
 // ── Cart ───────────────────────────────────────────────────────
 function canAddToCart(product, deltaQty = 1) {
+  // Menus that do not deduct stock can be sold without a recipe. Firebase
+  // legacy products have no deduct_stock field, so keep them sellable too.
+  const deductsStock = product.deduct_stock === true || product.deduct_stock === 1;
+  if (!deductsStock) return { ok: true };
+
   const recipe = state.recipesData.find(r => r.id === product.id);
   const currentQty = state.cart.filter(x => x.product.id === product.id).reduce((sum, x) => sum + x.qty, 0);
   const newQty = currentQty + deltaQty;
@@ -523,12 +534,14 @@ async function checkout() {
   const disc = memberDiscount + manualDisc;
   const total = subtotal - disc;
   const payType = $('#payment')?.value || 'cash';
+  const salesChannel = document.querySelector('input[name="sale-channel"]:checked')?.value || 'store';
   const redeemFreeCup = memberDiscount > 0;
 
   checkoutPayload = {
     items: state.cart.map(x => ({ productId: x.product.id, quantity: x.qty, options: x.options })),
     discount: disc,
     paymentType: payType,
+    salesChannel,
     memberPhone: currentMember?.phone || null,
     received: total,
     changeDue: 0,
@@ -599,6 +612,7 @@ function showReceipt(order) {
   set('#receipt-discount', money(order.discount));
   set('#receipt-total', money(order.total));
   set('#receipt-payment', order.paymentType === 'cash' ? 'เงินสด 💵' : 'สแกน QR 📱');
+  set('#receipt-tx', `บิล: ${order.id} · ${order.salesChannel === 'online' || order.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'}`);
 
   const cashRows = ['#receipt-cash-received-row', '#receipt-cash-change-row'];
   cashRows.forEach(s => { const el = $(s); if (el) el.style.display = order.paymentType === 'cash' ? 'flex' : 'none'; });
@@ -733,8 +747,10 @@ if (reportsBtn) {
         api('/api/reports/transactions')
       ]);
 
-      const totalSales = transactions.reduce((s, o) => s + o.total, 0);
-      const totalBills = transactions.length;
+      const storeTransactions = transactions.filter(order => (order.sales_channel || 'store') !== 'online');
+      const onlineTransactions = transactions.filter(order => order.sales_channel === 'online');
+      const totalSales = storeTransactions.reduce((s, o) => s + o.total, 0);
+      const totalBills = storeTransactions.length;
       const avgBill = totalBills ? totalSales / totalBills : 0;
 
       const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
@@ -787,8 +803,9 @@ if (reportsBtn) {
       // Payment methods
       const pmEl = $('#rep-payment-methods');
       if (pmEl) {
-        const cashSales = analytics.paymentSales.find(x => x.payment_type === 'cash')?.sales || 0;
-        const qrSales = analytics.paymentSales.find(x => x.payment_type === 'qr')?.sales || 0;
+        const cashSales = storeTransactions.filter(x => x.payment_type === 'cash').reduce((sum,x)=>sum+x.total,0);
+        const qrSales = storeTransactions.filter(x => x.payment_type === 'qr').reduce((sum,x)=>sum+x.total,0);
+        const onlineSales = onlineTransactions.reduce((sum,x)=>sum+x.total,0);
         pmEl.innerHTML = `
           <div style="text-align:center;flex:1;">
             <div style="font-size:11px;color:#888;">💵 เงินสด</div>
@@ -798,6 +815,11 @@ if (reportsBtn) {
           <div style="text-align:center;flex:1;">
             <div style="font-size:11px;color:#888;">📱 สแกน QR</div>
             <div style="font-size:20px;font-weight:700;color:var(--primary);margin-top:4px;">${money(qrSales)}</div>
+          </div>
+          <div style="border-left:1px dashed #dfcec0;"></div>
+          <div style="text-align:center;flex:1;">
+            <div style="font-size:11px;color:#888;">🌐 ออนไลน์ (ไม่รวมหน้าร้าน)</div>
+            <div style="font-size:20px;font-weight:700;color:#236b8e;margin-top:4px;">${money(onlineSales)}</div>
           </div>`;
       }
 
@@ -822,7 +844,7 @@ if (reportsBtn) {
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
                 <strong style="color:var(--primary);">${money(tx.total)}</strong>
-                <span style="font-size:10px;background:#f1ebe5;padding:2px 6px;border-radius:4px;">${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}</span>
+                <span style="font-size:10px;background:${tx.sales_channel === 'online' ? '#dff2fb' : '#f1ebe5'};padding:2px 6px;border-radius:4px;">${tx.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'} · ${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}</span>
               </div>`;
             row.onclick = () => { $('#reports-dialog')?.close(); showReceipt({ ...tx, items: tx.items }); };
             txEl.append(row);
@@ -1209,57 +1231,51 @@ async function renderChannelPricingGrid() {
       productPrices[x.product_id].channels[x.channel_key] = x;
     });
 
-    container.innerHTML = '';
-    Object.entries(productPrices).forEach(([prodId, p]) => {
-      const card = document.createElement('div');
-      card.style.cssText = 'border:1px solid #f1e7de;border-radius:12px;padding:14px;margin-bottom:12px;background:#faf8f5;';
-      const header = document.createElement('div');
-      header.style.cssText = 'font-weight:700;font-size:13.5px;color:var(--primary);display:flex;justify-content:space-between;margin-bottom:10px;';
-      header.innerHTML = `<span>${p.name}</span><span style="color:var(--text-muted);font-weight:500;">หน้าร้าน ${money(p.store_price)}</span>`;
-
-      const grid = document.createElement('div');
-      grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;';
-
+    const entries = Object.entries(productPrices);
+    if (!entries.length) {
+      container.innerHTML = '<p style="color:#aaa;font-size:12px;text-align:center;padding:10px;">ยังไม่มีสินค้า</p>';
+      return;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'delivery-table-wrap';
+    const table = document.createElement('table');
+    table.className = 'delivery-price-table';
+    const thead = document.createElement('thead');
+    thead.innerHTML = `<tr><th>เมนู</th><th>หน้าร้าน</th>${state.channels.map(ch => `<th>${ch.name}<small>GP ${ch.gp_percent}%</small></th>`).join('')}<th>บันทึก</th></tr>`;
+    const tbody = document.createElement('tbody');
+    entries.forEach(([prodId, p]) => {
+      const row = document.createElement('tr');
+      row.innerHTML = `<th>${p.name}</th><td>${money(p.store_price)}</td>`;
       state.channels.forEach(ch => {
         const item = p.channels[ch.channel_key];
         const suggested = Number(p.store_price / (1 - ch.gp_percent / 100)).toFixed(2);
-        const box = document.createElement('div');
-        box.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
-        box.innerHTML = `<label style="font-size:10.5px;font-weight:600;color:var(--text-muted);">${ch.name} (แนะนำ ฿${suggested})</label>`;
-        const inp = document.createElement('input');
-        inp.type = 'number';
-        inp.step = '0.5';
-        inp.placeholder = `฿${suggested}`;
-        inp.value = item?.sale_price != null ? item.sale_price : '';
-        inp.setAttribute('data-product-id', prodId);
-        inp.setAttribute('data-channel-key', ch.channel_key);
-        inp.style.cssText = 'padding:6px;font-size:12px;border:1px solid #dfcec0;border-radius:6px;outline:none;';
-        box.append(inp);
-        grid.append(box);
+        const cell = document.createElement('td');
+        const input = document.createElement('input');
+        input.type = 'number'; input.min = '0'; input.step = '0.5';
+        input.placeholder = suggested;
+        input.value = item?.sale_price != null ? item.sale_price : suggested;
+        input.dataset.productId = prodId;
+        input.dataset.channelKey = ch.channel_key;
+        input.setAttribute('aria-label', `${p.name} ${ch.name}`);
+        cell.append(input);
+        row.append(cell);
       });
-
-      const saveRow = document.createElement('div');
-      saveRow.style.cssText = 'display:flex;justify-content:flex-end;';
-      const saveBtn = document.createElement('button');
-      saveBtn.textContent = '💾 บันทึกราคาออนไลน์';
-      saveBtn.className = 'primary-btn';
-      saveBtn.style.cssText = 'font-size:11px;padding:6px 14px;';
-      saveBtn.onclick = async () => {
+      const action = document.createElement('td');
+      const save = document.createElement('button');
+      save.type = 'button'; save.className = 'primary-btn'; save.textContent = 'บันทึก';
+      save.onclick = async () => {
+        save.disabled = true;
         try {
-          for (const inp of card.querySelectorAll('input[data-product-id]')) {
-            const val = inp.value.trim();
-            if (val !== '') {
-              await api('/api/admin/channel-prices', { method: 'PUT', body: JSON.stringify({ productId: Number(inp.getAttribute('data-product-id')), channelKey: inp.getAttribute('data-channel-key'), salePrice: Number(val) }) });
-            }
+          for (const input of row.querySelectorAll('input')) {
+            await api('/api/admin/channel-prices', { method:'PUT', body:JSON.stringify({ productId:input.dataset.productId, channelKey:input.dataset.channelKey, salePrice:Number(input.value) }) });
           }
-          showNotice('บันทึกราคาออนไลน์สำเร็จ');
-        } catch (e) { showNotice(e.message, 'error'); }
+          showNotice(`บันทึกราคา ${p.name} สำเร็จ`);
+        } catch (error) { showNotice(error.message, 'error'); }
+        finally { save.disabled = false; }
       };
-      saveRow.append(saveBtn);
-      card.append(header, grid, saveRow);
-      container.append(card);
+      action.append(save); row.append(action); tbody.append(row);
     });
-    if (!container.childElementCount) container.innerHTML = '<p style="color:#aaa;font-size:12px;text-align:center;padding:10px;">ยังไม่มีสินค้า</p>';
+    table.append(thead, tbody); wrap.append(table); container.replaceChildren(wrap);
   } catch (e) {
     container.innerHTML = `<p style="color:#c0392b;font-size:12px;">${e.message}</p>`;
   }
@@ -1314,6 +1330,9 @@ function renderEditRecipeItems() {
 async function openProductEditor(product) {
   // Close settings → bounce to home register screen, then show editor overlay
   $('#settings')?.close();
+  uploadedProductImageData = product?.image_data || null;
+  if ($('#edit-prod-image-upload')) $('#edit-prod-image-upload').value = '';
+  if ($('#edit-prod-image-upload-status')) $('#edit-prod-image-upload-status').textContent = uploadedProductImageData ? '✓ ใช้รูปที่อัปโหลดไว้' : 'รองรับ JPG, PNG และ WebP ระบบจะย่อรูปให้อัตโนมัติ';
 
   if (product) {
     // Edit mode
@@ -1363,11 +1382,45 @@ async function openProductEditor(product) {
 
 function updateProductImagePreview() {
   const preview = $('#edit-prod-image-preview');
-  const imagePath = $('#edit-prod-image')?.value;
+  const imagePath = uploadedProductImageData || $('#edit-prod-image')?.value;
   if (!preview) return;
   preview.hidden = !imagePath;
-  if (imagePath) preview.src = new URL(String(imagePath).replace(/^\/+/, ''), document.baseURI).href;
+  if (imagePath) preview.src = String(imagePath).startsWith('data:') ? imagePath : new URL(String(imagePath).replace(/^\/+/, ''), document.baseURI).href;
 }
+
+async function resizeProductImage(file) {
+  if (!file?.type?.startsWith('image/')) throw new Error('กรุณาเลือกไฟล์รูปภาพ');
+  if (file.size > 12 * 1024 * 1024) throw new Error('ไฟล์รูปต้องมีขนาดไม่เกิน 12 MB');
+  const source = await createImageBitmap(file);
+  const maxSide = 900;
+  const scale = Math.min(1, maxSide / Math.max(source.width, source.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(source.width * scale));
+  canvas.height = Math.max(1, Math.round(source.height * scale));
+  canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+  source.close?.();
+  return canvas.toDataURL('image/jpeg', 0.78);
+}
+
+$('#edit-prod-image-upload') && ($('#edit-prod-image-upload').onchange = async event => {
+  const status = $('#edit-prod-image-upload-status');
+  try {
+    if (status) status.textContent = 'กำลังย่อและเตรียมรูป…';
+    uploadedProductImageData = await resizeProductImage(event.target.files?.[0]);
+    if ($('#edit-prod-image')) $('#edit-prod-image').value = '';
+    updateProductImagePreview();
+    if (status) status.textContent = '✓ พร้อมบันทึกรูปที่อัปโหลด';
+  } catch (error) {
+    uploadedProductImageData = null;
+    if (status) status.textContent = error.message;
+    showNotice(error.message, 'error');
+  }
+});
+
+$('#edit-prod-image') && ($('#edit-prod-image').onchange = () => {
+  uploadedProductImageData = null;
+  updateProductImagePreview();
+});
 
 // "Add new product" button
 const triggerAddBtn = $('#btn-trigger-add-product');
@@ -1454,6 +1507,7 @@ if (saveProductBtn) {
     const category = $('#edit-prod-category')?.value || 'other';
     const emoji = ($('#edit-prod-emoji')?.value || '☕').slice(0, 8);
     const imagePath = $('#edit-prod-image')?.value || null;
+    const imageData = uploadedProductImageData || null;
     const active = !!$('#edit-prod-active')?.checked;
     const deductStock = !!$('#edit-prod-deduct-stock')?.checked;
     const description = ($('#edit-recipe-description')?.value || '').trim();
@@ -1463,12 +1517,12 @@ if (saveProductBtn) {
     try {
       let productId;
       if (id) {
-        await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, category, emoji, active, deductStock, imagePath }) });
+        await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, category, emoji, active, deductStock, imagePath, imageData }) });
         await api(`/api/admin/products/${id}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         productId = Number(id);
         showNotice('บันทึกข้อมูลสินค้าสำเร็จ!');
       } else {
-        const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, category, emoji, deductStock, imagePath }) });
+        const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, category, emoji, deductStock, imagePath, imageData }) });
         productId = res.id;
         await api(`/api/admin/products/${productId}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         showNotice('เพิ่มสินค้าใหม่สำเร็จ!');
@@ -1523,6 +1577,12 @@ if (quickAddProductBtn) quickAddProductBtn.onclick = async () => {
   }
 };
 
+const quickAddCategoryBtn = $('#quick-add-category-btn');
+if (quickAddCategoryBtn) quickAddCategoryBtn.onclick = () => {
+  openAdminWindow('tab-products', 'จัดการหมวดหมู่สินค้า');
+  setTimeout(() => $('#new-category-name')?.focus(), 0);
+};
+
 const discountEl = $('#discount');
 if (discountEl) discountEl.oninput = renderCart;
 
@@ -1531,7 +1591,7 @@ if (checkoutBtn) checkoutBtn.onclick = checkout;
 
 $('#edit-prod-price') && ($('#edit-prod-price').oninput = renderEditRecipeItems);
 $('#edit-prod-margin') && ($('#edit-prod-margin').oninput = renderEditRecipeItems);
-$('#edit-prod-image') && ($('#edit-prod-image').onchange = updateProductImagePreview);
+$('#edit-prod-image') && ($('#edit-prod-image').onchange = () => { uploadedProductImageData = null; updateProductImagePreview(); });
 
 function refreshUnitCostPreview() {
   const qty=Number($('#cost-inv-purchase-qty')?.value)||0, total=Number($('#cost-inv-purchase-total')?.value)||0;
