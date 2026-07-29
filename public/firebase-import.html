@@ -4,5 +4,29 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script><script src="./firebase-client.js"></script>
 <script>
 const out=t=>document.querySelector('#out').textContent=t;
-document.querySelector('#run').onclick=async()=>{try{out('กำลังเชื่อมต่อ Firebase…');await window.firebaseReady;const pin=document.querySelector('#pin').value;const req=async(path,admin=false)=>{const r=await fetch(path,{headers:admin?{'x-admin-pin':pin}:{}});if(!r.ok)throw Error(await r.text());return r.json()};const [boot,recipes,transactions]=await Promise.all([req('/api/bootstrap'),req('/api/recipes').catch(()=>[]),req('/api/reports/transactions').catch(()=>[])]);const db=window.firebaseDb;const batchWrite=async(rows,collection,key,convert=x=>x)=>{for(let i=0;i<rows.length;i+=350){const b=db.batch();rows.slice(i,i+350).forEach(x=>{const y=convert(x);b.set(db.collection(collection).doc(String(y[key])),y,{merge:true})});await b.commit()}};const without=(field,x)=>{const copy={...x};delete copy[field];return copy};out('กำลังย้ายเมนูและวัตถุดิบ…');await batchWrite(boot.products,'products','id');await batchWrite(boot.inventory,'inventory','stock_key',x=>without('stock_key',x));await batchWrite(boot.categories,'categories','category_key',x=>without('category_key',x));await batchWrite(boot.channels,'channels','channel_key',x=>without('channel_key',x));await db.collection('settings').doc('features').set(boot.features,{merge:true});const recipeRows=[];recipes.forEach(r=>{db.collection('recipes').doc(String(r.id)).set({description:r.description||''},{merge:true});(r.items||[]).forEach((x,n)=>recipeRows.push({id:`${r.id}_${x.stock_key}_${n}`,product_id:r.id,...x}))});await batchWrite(recipeRows,'recipeItems','id');if(transactions.length){await batchWrite(transactions,'orders','id');const items=[];transactions.forEach(o=>(o.items||[]).forEach((x,n)=>items.push({id:`${o.id}_${n}`,order_id:o.id,...x,status:'completed',created_at:o.created_at,createdAt:o.created_at})));await batchWrite(items,'orderItems','id')}out(`สำเร็จ: เมนู ${boot.products.length} รายการ, วัตถุดิบ ${boot.inventory.length} รายการ, สูตร ${recipeRows.length} รายการ`)}catch(e){out('ผิดพลาด: '+e.message)}};
+document.querySelector('#run').onclick=async()=>{
+  try{
+    out('กำลังเชื่อมต่อ Firebase…');await window.firebaseReady;
+    const pin=document.querySelector('#pin').value;
+    const req=async(path,admin=false)=>{const r=await fetch(path,{headers:admin?{'x-admin-pin':pin}:{}});if(!r.ok)throw Error(await r.text());return r.json()};
+    const [boot,recipes,transactions]=await Promise.all([req('/api/bootstrap'),req('/api/recipes').catch(()=>[]),req('/api/reports/transactions').catch(()=>[])]);
+    const db=window.firebaseDb;
+    const batchWrite=async(rows,collection,key,convert=x=>x,chunkSize=350)=>{for(let i=0;i<rows.length;i+=chunkSize){const b=db.batch();rows.slice(i,i+chunkSize).forEach(x=>{const y=convert(x);b.set(db.collection(collection).doc(String(y[key])),y,{merge:true})});await b.commit()}};
+    const without=(field,x)=>{const copy={...x};delete copy[field];return copy};
+    const productForFirebase=x=>{let custom_options=[];try{custom_options=Array.isArray(x.custom_options)?x.custom_options:JSON.parse(x.custom_options_json||'[]')}catch{}return {...x,active:x.active!==0,deduct_stock:x.deduct_stock!==0,custom_options}};
+    out('กำลังย้ายเมนู วัตถุดิบ ตัวเลือก และราคาออนไลน์…');
+    await batchWrite(boot.products,'products','id',productForFirebase,10);
+    await batchWrite(boot.inventory,'inventory','stock_key',x=>without('stock_key',x));
+    await batchWrite(boot.categories,'categories','category_key',x=>({...without('category_key',x),active:x.active!==0}));
+    await batchWrite(boot.channels,'channels','channel_key',x=>({...without('channel_key',x),active:x.active!==0}));
+    await batchWrite(boot.channelPrices||[],'channelPrices','id',x=>({...x,id:`${x.product_id}_${x.channel_key}`}));
+    await batchWrite(boot.optionGroups||[],'optionGroups','id');
+    await db.collection('settings').doc('features').set(boot.features,{merge:true});
+    const recipeRows=[];
+    recipes.forEach(r=>{db.collection('recipes').doc(String(r.id)).set({description:r.description||''},{merge:true});(r.items||[]).forEach((x,n)=>recipeRows.push({id:`${r.id}_${x.stock_key}_${n}`,product_id:r.id,...x}))});
+    await batchWrite(recipeRows,'recipeItems','id');
+    if(transactions.length){await batchWrite(transactions,'orders','id');const items=[];transactions.forEach(o=>(o.items||[]).forEach((x,n)=>items.push({id:`${o.id}_${n}`,order_id:o.id,...x,status:'completed',created_at:o.created_at,createdAt:o.created_at})));await batchWrite(items,'orderItems','id')}
+    out(`สำเร็จ: เมนู ${boot.products.length} รายการ, วัตถุดิบ ${boot.inventory.length} รายการ, ตัวเลือก ${(boot.optionGroups||[]).length} กลุ่ม, สูตร ${recipeRows.length} รายการ`);
+  }catch(e){out('ผิดพลาด: '+e.message)}
+};
 </script></html>

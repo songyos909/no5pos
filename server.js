@@ -20,7 +20,7 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 db.exec(`
-CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), category TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '☕', active INTEGER NOT NULL DEFAULT 1, stock_key TEXT, deduct_stock INTEGER NOT NULL DEFAULT 1, image_path TEXT, custom_options_json TEXT NOT NULL DEFAULT '[]');
+CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), category TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '☕', active INTEGER NOT NULL DEFAULT 1, stock_key TEXT, deduct_stock INTEGER NOT NULL DEFAULT 1, image_path TEXT, image_data TEXT, custom_options_json TEXT NOT NULL DEFAULT '[]');
 CREATE TABLE IF NOT EXISTS inventory (stock_key TEXT PRIMARY KEY, name TEXT NOT NULL, unit TEXT NOT NULL, quantity REAL NOT NULL DEFAULT 0, low_alert REAL NOT NULL DEFAULT 0, category TEXT NOT NULL DEFAULT 'raw');
 CREATE TABLE IF NOT EXISTS recipes (product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE, ingredients TEXT NOT NULL, steps TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS members (phone TEXT PRIMARY KEY, name TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0);
@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS recipe_items (
 db.exec(`CREATE TABLE IF NOT EXISTS recipe_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, items_json TEXT NOT NULL, created_at TEXT NOT NULL)`);
 try { db.exec('ALTER TABLE products ADD COLUMN deduct_stock INTEGER NOT NULL DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE products ADD COLUMN image_path TEXT'); } catch {}
+try { db.exec('ALTER TABLE products ADD COLUMN image_data TEXT'); } catch {}
 try { db.exec("ALTER TABLE products ADD COLUMN custom_options_json TEXT NOT NULL DEFAULT '[]'"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN sales_channel TEXT NOT NULL DEFAULT 'store'"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN online_platform TEXT"); } catch {}
@@ -162,6 +163,8 @@ if (db.prepare('SELECT count(*) AS n FROM products').get().n === 0) {
     ['kds','inventory','members','recipes','reports'].forEach(k => db.prepare('INSERT INTO feature_settings VALUES (?,1)').run(k));
   }); seed();
 }
+const ensureFeature=db.prepare('INSERT OR IGNORE INTO feature_settings(feature_key,enabled) VALUES (?,1)');
+['kds','inventory','members','recipes','reports'].forEach(key=>ensureFeature.run(key));
 
 const app = express();
 // Keep the No.5 Cafe menu board complete even when an older local database already exists.
@@ -204,7 +207,7 @@ app.use((_, res, next) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
-app.use(express.json({ limit: '200kb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 const configuredAdminPin = String(process.env.ADMIN_PIN || '').trim();
 const admin = (req,res,next) => {
@@ -265,7 +268,7 @@ const getRecipeItems = (productId, stockKey) => {
 };
 const requireRecipe = product => { const items=getRecipeItems(product.id, product.stock_key); if (!items.length) throw Error(`เมนู ${product.name_th || product.name} ยังไม่มีสูตรชง กรุณาตั้งค่าสูตรก่อนขาย`); return items; };
 
-app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), optionGroups:getOptionGroups(), features:Object.fromEntries(db.prepare('SELECT feature_key,enabled FROM feature_settings').all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
+app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), channelPrices:db.prepare('SELECT product_id,channel_key,sale_price FROM channel_prices').all(), optionGroups:getOptionGroups(), features:Object.fromEntries(db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
 app.get('/api/pricing', (_,res) => res.json(db.prepare(`SELECT p.id product_id,p.name,p.price store_price,c.channel_key,c.name channel_name,c.gp_percent,cp.sale_price,round(p.price/(1-c.gp_percent/100),2) suggested_price FROM products p CROSS JOIN sales_channels c LEFT JOIN channel_prices cp ON cp.product_id=p.id AND cp.channel_key=c.channel_key WHERE p.active=1 AND c.active=1 ORDER BY p.name,c.name`).all()));
 app.get('/api/costing', (_,res) => {
   const products=db.prepare('SELECT id,name,price,category,target_margin FROM products WHERE active=1 ORDER BY category,name').all();
@@ -281,8 +284,8 @@ app.get('/api/costing', (_,res) => {
 });
 app.get('/api/orders', admin, (req,res) => res.json(db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 100').all()));
 
-app.get('/api/reports/today', (_,res) => res.json(db.prepare("SELECT count(CASE WHEN sales_channel!='online' THEN 1 END) storeOrders, coalesce(sum(CASE WHEN sales_channel!='online' THEN total ELSE 0 END),0) storeSales, count(CASE WHEN sales_channel='online' THEN 1 END) onlineOrders, coalesce(sum(CASE WHEN sales_channel='online' THEN total ELSE 0 END),0) onlineSales, coalesce(sum(CASE WHEN sales_channel='online' THEN coalesce(online_net,total) ELSE 0 END),0) onlineNet, count(CASE WHEN sales_channel!='online' THEN 1 END) orders, coalesce(sum(CASE WHEN sales_channel!='online' THEN total ELSE 0 END),0) sales FROM orders WHERE date(created_at,'localtime')=date('now','localtime')").get()));
-app.get('/api/kds', (_,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); res.json(db.prepare("SELECT oi.id,oi.name,oi.quantity,oi.options_json,oi.status,o.id order_id,o.created_at FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE date(o.created_at,'localtime')=date('now','localtime') ORDER BY o.created_at DESC LIMIT 100").all()); });
+app.get('/api/reports/today', (_,res) => res.json(db.prepare("SELECT count(CASE WHEN sales_channel!='online' THEN 1 END) storeOrders, coalesce(sum(CASE WHEN sales_channel!='online' THEN total ELSE 0 END),0) storeSales, count(CASE WHEN sales_channel='online' THEN 1 END) onlineOrders, coalesce(sum(CASE WHEN sales_channel='online' THEN total ELSE 0 END),0) onlineSales, coalesce(sum(CASE WHEN sales_channel='online' THEN coalesce(online_net,total) ELSE 0 END),0) onlineNet, count(CASE WHEN sales_channel!='online' THEN 1 END) orders, coalesce(sum(CASE WHEN sales_channel!='online' THEN total ELSE 0 END),0) sales FROM orders WHERE date(created_at,'+7 hours')=date('now','+7 hours')").get()));
+app.get('/api/kds', (_,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); res.json(db.prepare("SELECT oi.id,oi.name,oi.quantity,oi.options_json,oi.status,o.id order_id,o.created_at FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE date(o.created_at,'+7 hours')=date('now','+7 hours') ORDER BY o.created_at DESC LIMIT 100").all()); });
 app.put('/api/kds/items/:id/status', (req,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); const status=req.body?.status; if(!['pending','cooking','completed'].includes(status)) return fail(res,'สถานะไม่ถูกต้อง'); const r=db.prepare('UPDATE order_items SET status=? WHERE id=?').run(status,req.params.id); return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการคิวชง',404); });
 app.delete('/api/kds/completed', (_,res) => { if(!enabled('kds')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันคิวชง',403); const r=db.prepare("DELETE FROM order_items WHERE status='completed'").run(); res.json({ok:true,cleared:r.changes}); });
 app.get('/api/members', (_,res) => { if(!enabled('members')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันสมาชิก',403); res.json(db.prepare('SELECT phone,name,points FROM members ORDER BY points DESC,name LIMIT 100').all()); });
@@ -307,11 +310,16 @@ app.get('/api/recipes', (_,res) => {
 });
 
 app.post('/api/orders', (req,res) => {
-  const {items, discount=0, paymentType, salesChannel='store', onlinePlatform=null, gpPercent=0, memberPhone=null, received=0, changeDue=0, redeemFreeCup=false} = req.body || {};
+  const {items, discount=0, manualDiscount=null, paymentType, salesChannel='store', onlinePlatform=null, memberPhone=null, received=0, redeemFreeCup=false} = req.body || {};
   if (!Array.isArray(items) || !items.length || !['cash','qr'].includes(paymentType)) return fail(res,'Invalid payment data');
-  if (!Number.isFinite(Number(discount)) || Number(discount)<0) return fail(res,'Invalid discount');
+  const requestedDiscount=Number(manualDiscount ?? discount);
+  if (!Number.isFinite(requestedDiscount) || requestedDiscount<0) return fail(res,'Invalid discount');
   try {
     const order = db.transaction(() => {
+      const normalizedSalesChannel=salesChannel==='online'?'online':'store';
+      const channel=normalizedSalesChannel==='online'?db.prepare('SELECT channel_key,gp_percent FROM sales_channels WHERE channel_key=? AND active=1').get(String(onlinePlatform||'')):null;
+      if(normalizedSalesChannel==='online'&&(!channel||Number(channel.gp_percent)<=0||Number(channel.gp_percent)>=100)) throw Error('กรุณาตั้งค่า GP จริงของแพลตฟอร์ม');
+      const normalizedPlatform=channel?.channel_key||null, normalizedGp=channel?Number(channel.gp_percent):0;
       const findProduct=db.prepare('SELECT * FROM products WHERE id=?'); let subtotal=0; const lines=[];
       for (const row of items) {
         const product=findProduct.get(Number(row.productId)), qty=Number(row.quantity);
@@ -319,41 +327,38 @@ app.post('/api/orders', (req,res) => {
         const raw=row.options||{};
         const selected=selectedCustomOptions(product,raw);
         const options={custom:selected.custom,custom_labels:selected.custom_labels};
-        const unitPrice=Number(product.price)+selected.extra;
+        const savedPrice=channel?db.prepare('SELECT sale_price FROM channel_prices WHERE product_id=? AND channel_key=?').get(product.id,channel.channel_key):null;
+        const unitPrice=Number(savedPrice?.sale_price??product.price)+selected.extra;
         subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
       }
-      const finalDiscount=Math.min(Number(discount),subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
+      const member=memberPhone&&enabled('members')?db.prepare('SELECT points FROM members WHERE phone=?').get(memberPhone):null;
+      const beverageLines=lines.filter(line=>['coffee','tea'].includes(line.product.category));
+      if(redeemFreeCup&&(!member||Number(member.points)<10)) throw Error('คะแนนไม่เพียงพอสำหรับแลกแก้วฟรี');
+      if(redeemFreeCup&&!beverageLines.length) throw Error('ต้องมีเครื่องดื่มอย่างน้อย 1 แก้วเพื่อใช้สิทธิ์');
+      const rewardDiscount=redeemFreeCup?Math.min(...beverageLines.map(line=>line.unitPrice)):0;
+      const effectiveManual=manualDiscount==null&&redeemFreeCup?Math.max(0,requestedDiscount-rewardDiscount):requestedDiscount;
+      const finalDiscount=Math.min(effectiveManual+rewardDiscount,subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
       for(const {product,qty} of lines) if(product.deduct_stock) for(const item of requireRecipe(product)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
-      const normalizedSalesChannel=salesChannel==='online'?'online':'store';
-      const normalizedGp=normalizedSalesChannel==='online'?Number(gpPercent):0;
-      if(normalizedSalesChannel==='online'&&(!onlinePlatform||!Number.isFinite(normalizedGp)||normalizedGp<=0||normalizedGp>=100)) throw Error('กรุณาตั้งค่า GP จริงของแพลตฟอร์ม');
       const onlineNet=normalizedSalesChannel==='online'?Number((total*(1-normalizedGp/100)).toFixed(2)):total;
-      db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, sales_channel, online_platform, gp_percent, online_net, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,normalizedSalesChannel,onlinePlatform,normalizedGp,onlineNet,memberPhone||null,received,changeDue);
+      const normalizedReceived=paymentType==='cash'?Number(received):total;
+      if(!Number.isFinite(normalizedReceived)||normalizedReceived<total) throw Error('ยอดเงินที่รับไม่เพียงพอ');
+      const normalizedChange=paymentType==='cash'?Number((normalizedReceived-total).toFixed(2)):0;
+      db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, sales_channel, online_platform, gp_percent, online_net, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,normalizedSalesChannel,normalizedPlatform,normalizedGp,onlineNet,memberPhone||null,normalizedReceived,normalizedChange);
       for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name_th||product.name,unitPrice,qty,JSON.stringify(options)); if(product.deduct_stock) for(const item of requireRecipe(product)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
       
       let memberPoints = 0;
-      if(memberPhone && enabled('members')) {
-        const member = db.prepare('SELECT points FROM members WHERE phone=?').get(memberPhone);
-        if (member) {
-          let cupsEarned = 0;
-          for (const {product, qty} of lines) {
-            if (['coffee','tea'].includes(product.category)) {
-              cupsEarned += qty;
-            }
-          }
+      if(member) {
+          let cupsEarned = beverageLines.reduce((sum,line)=>sum+line.qty,0);
           let newPoints = member.points;
           if (redeemFreeCup) {
-            if (member.points < 10) throw Error('คะแนนไม่เพียงพอสำหรับแลกแก้วฟรี');
-            if (cupsEarned < 1) throw Error('ต้องมีเครื่องดื่มอย่างน้อย 1 แก้วเพื่อใช้สิทธิ์');
             newPoints -= 10;
             cupsEarned = Math.max(0, cupsEarned - 1);
           }
           newPoints += cupsEarned;
           db.prepare('UPDATE members SET points=? WHERE phone=?').run(newPoints, memberPhone);
           memberPoints = newPoints;
-        }
       }
-      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,salesChannel:normalizedSalesChannel,onlinePlatform,gpPercent:normalizedGp,onlineNet,memberPhone,received,changeDue,memberPoints,items:lines.map(x=>({name:x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
+      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,salesChannel:normalizedSalesChannel,onlinePlatform:normalizedPlatform,gpPercent:normalizedGp,onlineNet,memberPhone,received:normalizedReceived,changeDue:normalizedChange,memberPoints,items:lines.map(x=>({name:x.product.name_th||x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
     })();
     res.status(201).json(order);
   } catch(e) { fail(res,e.message); }
@@ -483,7 +488,7 @@ app.get('/api/reports/transactions', (_, res) => {
   }
 });
 
-app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare('SELECT feature_key,enabled FROM feature_settings').all()}));
+app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all()}));
 app.get('/api/admin/recipe-groups', admin, (_,res) => res.json(db.prepare('SELECT * FROM recipe_groups ORDER BY name').all().map(x=>({id:x.id,name:x.name,items:JSON.parse(x.items_json)}))));
 app.post('/api/admin/recipe-groups', admin, (req,res) => { const name=String(req.body?.name||'').trim(),items=Array.isArray(req.body?.items)?req.body.items.filter(x=>x.stock_key&&Number(x.quantity)>0):[];if(!name||!items.length)return fail(res,'ข้อมูลกลุ่มไม่ถูกต้อง');const groupId=`grp_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;db.prepare('INSERT INTO recipe_groups(id,name,items_json,created_at) VALUES (?,?,?,?)').run(groupId,name,JSON.stringify(items),new Date().toISOString());res.status(201).json({id:groupId}); });
 app.delete('/api/admin/recipe-groups/:id', admin, (req,res) => { const r=db.prepare('DELETE FROM recipe_groups WHERE id=?').run(req.params.id);return r.changes?res.json({ok:true}):fail(res,'ไม่พบกลุ่มรายการ',404); });
@@ -528,16 +533,16 @@ app.put('/api/admin/products/:id/costing', admin, (req,res) => {
 });
 
 app.post('/api/admin/products', admin, (req,res) => {
-  const {name,price,category,emoji='☕',stockKey=null,deductStock=true,imagePath=null,customOptions=[]}=req.body||{};
+  const {name,price,category,emoji='☕',stockKey=null,deductStock=true,imagePath=null,imageData=null,customOptions=[]}=req.body||{};
   if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง');
-  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key,deduct_stock,image_path,custom_options_json) VALUES (?,?,?,?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey,deductStock?1:0,imagePath||null,JSON.stringify(normalizeCustomOptions(customOptions)));
+  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key,deduct_stock,image_path,image_data,custom_options_json) VALUES (?,?,?,?,?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey,deductStock?1:0,imagePath||null,imageData||null,JSON.stringify(normalizeCustomOptions(customOptions)));
   res.status(201).json({id:result.lastInsertRowid});
 });
 
 app.put('/api/admin/products/:id', admin, (req,res) => {
-  const {name,price,category,emoji='☕',active=true,stockKey=null,deductStock=true,imagePath=null,customOptions=[]}=req.body||{};
+  const {name,price,category,emoji='☕',active=true,stockKey=null,deductStock=true,imagePath=null,imageData=null,customOptions=[]}=req.body||{};
   if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง');
-  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=?,deduct_stock=?,image_path=?,custom_options_json=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,deductStock?1:0,imagePath||null,JSON.stringify(normalizeCustomOptions(customOptions)),req.params.id);
+  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=?,deduct_stock=?,image_path=?,image_data=?,custom_options_json=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,deductStock?1:0,imagePath||null,imageData||null,JSON.stringify(normalizeCustomOptions(customOptions)),req.params.id);
   return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสินค้า',404);
 });
 

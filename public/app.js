@@ -13,6 +13,7 @@ let state = {
   categories: [],
   inventory: [],
   channels: [],
+  channelPrices: [],
   optionGroups: [],
   recipesData: [],
   selectedCategory: 'all',
@@ -30,6 +31,7 @@ let currentCustomOptionGroups = [];
 const $ = s => document.querySelector(s);
 const money = n => `฿${Number(n || 0).toFixed(2)}`;
 const displayName = item => item?.name_th || item?.name || '';
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const menuImageFor = product => {
   if (product?.image_data) return product.image_data;
   if (product?.image_path) return String(product.image_path).replace(/^\/+/, '');
@@ -87,9 +89,15 @@ async function load() {
     state.categories = boot.categories || [];
     state.inventory = (boot.inventory || []).map(item => ({ ...item, name: displayName(item) }));
     state.channels = boot.channels || [];
+    state.channelPrices = boot.channelPrices || [];
     state.optionGroups = normalizeCustomOptionGroups(boot.optionGroups || []);
+    state.cart = savedCart.flatMap(item => {
+      const product=state.products.find(entry=>String(entry.id)===String(item.product?.id));
+      if(!product)return [];
+      const options=sanitizeCartOptions(product,item.options);
+      return [{...item,product,options,key:`${product.id}:${JSON.stringify(options)}`}];
+    });
     renderOnlineChannelOptions();
-    state.cart = savedCart;
     state.selectedCategory = savedCategory;
     state.selectedStockCategory = savedStockCat;
 
@@ -122,6 +130,15 @@ function selectedOnlineChannel() {
   const key = $('#online-channel')?.value;
   return state.channels.find(channel => channel.channel_key === key) || null;
 }
+function saleBasePrice(product) {
+  const online=document.querySelector('input[name="sale-channel"]:checked')?.value==='online';
+  const channel=online?selectedOnlineChannel():null;
+  if(!channel)return Number(product?.price||0);
+  const saved=state.channelPrices.find(row=>String(row.product_id)===String(product?.id)&&row.channel_key===channel.channel_key);
+  return saved&&Number.isFinite(Number(saved.sale_price))?Number(saved.sale_price):Number(product?.price||0);
+}
+function cartUnitPrice(item){return saleBasePrice(item.product)+modifierExtra(item.options||{},item.product);}
+function repriceCart(){state.cart.forEach(item=>{item.unitPrice=cartUnitPrice(item);});}
 
 function updateOnlineChannelUI() {
   const online = document.querySelector('input[name="sale-channel"]:checked')?.value === 'online';
@@ -133,6 +150,9 @@ function updateOnlineChannelUI() {
   if (!online) summary.textContent = '';
   else if (!channel || Number(channel.gp_percent) <= 0) summary.textContent = '⚠ กรุณาตั้งค่า GP จริงของร้านก่อนบันทึกขายออนไลน์';
   else summary.textContent = `GP ตามสัญญา ${Number(channel.gp_percent).toFixed(2)}% · ระบบคำนวณยอดสุทธิหลังหัก GP`;
+  repriceCart();
+  renderProducts();
+  renderCart();
 }
 
 function renderOnlineChannelOptions() {
@@ -295,6 +315,14 @@ function normalizeCustomOptionGroups(raw) {
   } catch { return []; }
 }
 const productOptionGroups = product => normalizeCustomOptionGroups(product?.custom_options ?? product?.custom_options_json);
+function sanitizeCartOptions(product,raw={}) {
+  const custom={},custom_labels=[];
+  productOptionGroups(product).forEach(group=>{
+    const choice=group.choices.find(item=>String(item.id)===String(raw?.custom?.[group.id]))||group.choices[0];
+    if(choice){custom[group.id]=choice.id;custom_labels.push(`${group.name}: ${choice.label}`);}
+  });
+  return {custom,custom_labels};
+}
 function modifierExtra(options, product) {
   let extra = 0;
   productOptionGroups(product).forEach(group => {
@@ -325,7 +353,7 @@ function renderModifierModal() {
     group.choices.forEach(choice => { const button=document.createElement('button');button.type='button';button.textContent=`${choice.label}${choice.price ? ` +${money(choice.price)}` : ''}`;button.className=modifierOptions.custom[group.id]===choice.id?'selected':'';button.onclick=()=>{modifierOptions.custom[group.id]=choice.id;renderModifierModal();};row.append(button); });
     sec.append(h,row);root.append(sec);
   });
-  $('#modifier-price').textContent=money(modifierProduct.price+modifierExtra(modifierOptions,modifierProduct));
+  $('#modifier-price').textContent=money(saleBasePrice(modifierProduct)+modifierExtra(modifierOptions,modifierProduct));
 }
 function confirmModifier() {
   if(!modifierProduct) return;
@@ -371,7 +399,7 @@ function renderProducts() {
     const name = document.createElement('b');
     name.textContent = p.name;
     const price = document.createElement('small');
-    price.textContent = money(p.price);
+    price.textContent = money(saleBasePrice(p));
     card.append(visual, name, price);
 
     if (status === 'low') {
@@ -425,8 +453,8 @@ function showRecipePopover(product) {
     if (recipe && recipe.items && recipe.items.length) {
       itemsEl.innerHTML = recipe.items.map(x =>
         `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f1ebe5;">
-          <span>• ${x.name}</span>
-          <span style="font-weight:700;color:var(--primary)">${x.quantity} ${x.unit}</span>
+          <span>• ${escapeHtml(x.name)}</span>
+          <span style="font-weight:700;color:var(--primary)">${escapeHtml(x.quantity)} ${escapeHtml(x.unit)}</span>
         </div>`
       ).join('');
     } else {
@@ -469,7 +497,7 @@ function addToCart(product, options = {}) {
   const key = `${product.id}:${JSON.stringify(options)}`;
   const existing = state.cart.find(x => x.key === key);
   if (existing) existing.qty++;
-  else state.cart.push({ product, options, unitPrice: product.price + modifierExtra(options, product), key, qty: 1 });
+  else state.cart.push({ product, options, unitPrice: saleBasePrice(product) + modifierExtra(options, product), key, qty: 1 });
   renderCart();
   const badge = $('#count');
   if (badge) { badge.classList.remove('pulse'); void badge.offsetWidth; badge.classList.add('pulse'); }
@@ -594,7 +622,7 @@ async function searchMember() {
   }
 }
 
-$('#member-phone') && ($('#member-phone').oninput = () => { clearTimeout(memberSearchTimer); memberSearchTimer=setTimeout(searchMember,250); });
+$('#member-phone') && ($('#member-phone').oninput = () => { memberSearchSequence++;clearTimeout(memberSearchTimer);memberSearchTimer=setTimeout(searchMember,250); });
 $('#member-use-free-cup') && ($('#member-use-free-cup').onchange = () => renderCart());
 
 const regMemberBtn = $('#register-member-btn');
@@ -641,6 +669,8 @@ async function checkout() {
   checkoutPayload = {
     items: state.cart.map(x => ({ productId: x.product.id, quantity: x.qty, options: x.options })),
     discount: disc,
+    manualDiscount: manualDisc,
+    totalDue: total,
     paymentType: payType,
     salesChannel,
     onlinePlatform: onlineChannel?.channel_key || null,
@@ -694,6 +724,8 @@ async function finalizeCheckout() {
 function showReceipt(order) {
   const dlg = $('#receipt-dialog');
   if (!dlg) return;
+  const paymentType=order.paymentType||order.payment_type||'cash';
+  const memberPhone=order.memberPhone||order.member_phone||null;
 
   const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
   set('#receipt-date', `วันที่: ${new Date(order.createdAt || order.created_at).toLocaleString('th-TH')}`);
@@ -705,7 +737,7 @@ function showReceipt(order) {
     if (items.length) {
       itemsEl.innerHTML = items.map(x =>
         `<div style="display:flex;justify-content:space-between;margin-bottom:3px;">
-          <span>${x.name} ×${x.quantity}</span>
+          <span>${escapeHtml(x.name)} ×${escapeHtml(x.quantity)}</span>
           <span>${money(x.unit_price * x.quantity)}</span>
         </div>`
       ).join('');
@@ -717,22 +749,22 @@ function showReceipt(order) {
   set('#receipt-subtotal', money(order.subtotal));
   set('#receipt-discount', money(order.discount));
   set('#receipt-total', money(order.total));
-  set('#receipt-payment', order.paymentType === 'cash' ? 'เงินสด 💵' : 'สแกน QR 📱');
+  set('#receipt-payment', paymentType === 'cash' ? 'เงินสด 💵' : 'สแกน QR 📱');
   set('#receipt-tx', `บิล: ${order.id} · ${order.salesChannel === 'online' || order.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'}`);
 
   const cashRows = ['#receipt-cash-received-row', '#receipt-cash-change-row'];
-  cashRows.forEach(s => { const el = $(s); if (el) el.style.display = order.paymentType === 'cash' ? 'flex' : 'none'; });
-  if (order.paymentType === 'cash') {
+  cashRows.forEach(s => { const el = $(s); if (el) el.style.display = paymentType === 'cash' ? 'flex' : 'none'; });
+  if (paymentType === 'cash') {
     set('#receipt-received', money(order.received));
     set('#receipt-change', money(order.changeDue ?? order.change_due));
   }
 
   const mRow = $('#receipt-member-row');
   if (mRow) {
-    if (order.memberPhone) {
+    if (memberPhone) {
       mRow.style.display = 'flex';
       const ptEl = mRow.querySelector('span:last-child') || $('#receipt-member-points');
-      if (ptEl) ptEl.textContent = `สะสม ${order.memberPoints || 0} แก้ว (${order.memberPhone})`;
+      if (ptEl) ptEl.textContent = order.memberPoints==null ? `สมาชิก ${memberPhone}` : `สะสม ${order.memberPoints} แก้ว (${memberPhone})`;
     } else {
       mRow.style.display = 'none';
     }
@@ -745,7 +777,7 @@ function showReceipt(order) {
 function updateCalcChange() {
   const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
   const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
-  const total = subtotal - disc;
+  const total = Number.isFinite(Number(checkoutPayload?.totalDue)) ? Number(checkoutPayload.totalDue) : subtotal - disc;
   const received = Number($('#calc-received-input')?.value) || 0;
   const change = received - total;
   const el = $('#calc-change-amount');
@@ -762,9 +794,9 @@ document.querySelectorAll('.quick-cash-btn').forEach(btn => {
   btn.onclick = async () => {
     const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
     const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
-    const total = subtotal - disc;
+    const total = Number.isFinite(Number(checkoutPayload?.totalDue)) ? Number(checkoutPayload.totalDue) : subtotal - disc;
     const val = btn.getAttribute('data-value');
-    const received = val === 'exact' ? Math.ceil(total) : Number(val);
+    const received = val === 'exact' ? total : Number(val);
     if ($('#calc-received-input')) $('#calc-received-input').value = received;
     updateCalcChange();
     // Selecting a denomination only previews the change. The cashier must
@@ -777,7 +809,7 @@ if (calcSubmitBtn) {
   calcSubmitBtn.onclick = async () => {
     const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
     const disc = Math.min(Number($('#discount')?.value) || 0, subtotal);
-    const total = subtotal - disc;
+    const total = Number.isFinite(Number(checkoutPayload?.totalDue)) ? Number(checkoutPayload.totalDue) : subtotal - disc;
     const received = Number($('#calc-received-input')?.value) || 0;
     if (received < total) return alert('ยอดเงินไม่เพียงพอ กรุณารับเงินให้ครบ');
     if (checkoutPayload) { checkoutPayload.received = received; checkoutPayload.changeDue = received - total; }
@@ -879,7 +911,7 @@ if (reportsBtn) {
             item.style.cssText = 'font-size:12px;margin-bottom:8px;';
             item.innerHTML = `
               <div style="display:flex;justify-content:space-between;font-weight:600;margin-bottom:3px;">
-                <span>${catNames[x.category] || x.category}</span>
+                <span>${escapeHtml(catNames[x.category] || x.category)}</span>
                 <span>${money(x.sales)}</span>
               </div>
               <div style="background:#f1ebe5;border-radius:4px;height:8px;overflow:hidden;">
@@ -900,7 +932,7 @@ if (reportsBtn) {
           analytics.topSellers.forEach((x, i) => {
             const item = document.createElement('div');
             item.style.cssText = 'font-size:12px;display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f9f6f3;';
-            item.innerHTML = `<span>${i + 1}. <b>${x.name}</b> (${x.qty} ชิ้น)</span><span style="font-weight:700;color:var(--primary);">${money(x.revenue)}</span>`;
+            item.innerHTML = `<span>${i + 1}. <b>${escapeHtml(x.name)}</b> (${escapeHtml(x.qty)} ชิ้น)</span><span style="font-weight:700;color:var(--primary);">${money(x.revenue)}</span>`;
             topEl.append(item);
           });
         }
@@ -945,8 +977,8 @@ if (reportsBtn) {
             const itemSummary = (tx.items || []).map(x => `${x.name}×${x.quantity}`).join(', ');
             row.innerHTML = `
               <div>
-                <b>${tx.id}</b> <small style="color:#aaa;">(${time})</small>
-                <div style="font-size:10.5px;color:#8c7366;margin-top:2px;">${itemSummary || '—'}</div>
+                <b>${escapeHtml(tx.id)}</b> <small style="color:#aaa;">(${escapeHtml(time)})</small>
+                <div style="font-size:10.5px;color:#8c7366;margin-top:2px;">${escapeHtml(itemSummary || '—')}</div>
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
                 <strong style="color:var(--primary);">${money(tx.total)}</strong>
@@ -1156,6 +1188,8 @@ async function adminLoad() {
   state.categories = boot.categories || [];
   state.inventory = boot.inventory || [];
   state.channels = boot.channels || [];
+  state.channelPrices = boot.channelPrices || [];
+  state.optionGroups = normalizeCustomOptionGroups(boot.optionGroups || []);
   renderInventoryList();
   renderAdminMembers();
 
@@ -1192,7 +1226,7 @@ async function adminLoad() {
       row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid #f5f0eb;font-size:13px;';
 
       const info = document.createElement('span');
-      info.innerHTML = `${p.emoji} <b>${p.name}</b> — <span style="color:var(--primary);">${money(p.price)}</span> <small style="color:#aaa;">(${p.category})</small>${p.active ? '' : ' <span style="color:#c0392b;font-size:10px;font-weight:700;">[ปิดขาย]</span>'}`;
+      info.innerHTML = `${escapeHtml(p.emoji)} <b>${escapeHtml(p.name)}</b> — <span style="color:var(--primary);">${money(p.price)}</span> <small style="color:#aaa;">(${escapeHtml(p.category)})</small>${p.active ? '' : ' <span style="color:#c0392b;font-size:10px;font-weight:700;">[ปิดขาย]</span>'}`;
 
       const costing = costingByProduct[p.id];
       const costInfo = document.createElement('small');
@@ -1263,8 +1297,8 @@ function renderCategoriesTable() {
       <tbody>
         ${state.categories.map(c => `
           <tr style="border-bottom:1px solid #faf6f2;">
-            <td style="padding:8px;font-family:Courier,monospace;font-weight:600;">${c.category_key}</td>
-            <td style="padding:8px;">${c.name}</td><td style="padding:5px;white-space:nowrap;"><button data-edit-category="${c.category_key}">✏️</button> <button data-delete-category="${c.category_key}">🗑️</button></td>
+            <td style="padding:8px;font-family:Courier,monospace;font-weight:600;">${escapeHtml(c.category_key)}</td>
+            <td style="padding:8px;">${escapeHtml(c.name)}</td><td style="padding:5px;white-space:nowrap;"><button data-edit-category="${escapeHtml(c.category_key)}">✏️</button> <button data-delete-category="${escapeHtml(c.category_key)}">🗑️</button></td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1347,11 +1381,11 @@ async function renderChannelPricingGrid() {
     const table = document.createElement('table');
     table.className = 'delivery-price-table';
     const thead = document.createElement('thead');
-    thead.innerHTML = `<tr><th>เมนู</th><th>หน้าร้าน</th>${state.channels.map(ch => `<th>${ch.name}<small>GP ${ch.gp_percent}%</small></th>`).join('')}<th>บันทึก</th></tr>`;
+    thead.innerHTML = `<tr><th>เมนู</th><th>หน้าร้าน</th>${state.channels.map(ch => `<th>${escapeHtml(ch.name)}<small>GP ${Number(ch.gp_percent||0).toFixed(2)}%</small></th>`).join('')}<th>บันทึก</th></tr>`;
     const tbody = document.createElement('tbody');
     entries.forEach(([prodId, p]) => {
       const row = document.createElement('tr');
-      row.innerHTML = `<th>${p.name}</th><td>${money(p.store_price)}</td>`;
+      row.innerHTML = `<th>${escapeHtml(p.name)}</th><td>${money(p.store_price)}</td>`;
       state.channels.forEach(ch => {
         const item = p.channels[ch.channel_key];
         const suggested = Number(p.store_price / (1 - ch.gp_percent / 100)).toFixed(2);
@@ -1374,7 +1408,11 @@ async function renderChannelPricingGrid() {
         try {
           for (const input of row.querySelectorAll('input')) {
             await api('/api/admin/channel-prices', { method:'PUT', body:JSON.stringify({ productId:input.dataset.productId, channelKey:input.dataset.channelKey, salePrice:Number(input.value) }) });
+            const saved=state.channelPrices.find(item=>String(item.product_id)===String(input.dataset.productId)&&item.channel_key===input.dataset.channelKey);
+            if(saved)saved.sale_price=Number(input.value);
+            else state.channelPrices.push({product_id:input.dataset.productId,channel_key:input.dataset.channelKey,sale_price:Number(input.value)});
           }
+          repriceCart();renderProducts();renderCart();
           showNotice(`บันทึกราคา ${p.name} สำเร็จ`);
         } catch (error) { showNotice(error.message, 'error'); }
         finally { save.disabled = false; }
@@ -1383,7 +1421,7 @@ async function renderChannelPricingGrid() {
     });
     table.append(thead, tbody); wrap.append(table); container.replaceChildren(wrap);
   } catch (e) {
-    container.innerHTML = `<p style="color:#c0392b;font-size:12px;">${e.message}</p>`;
+    container.innerHTML = `<p style="color:#c0392b;font-size:12px;">${escapeHtml(e.message)}</p>`;
   }
 }
 
@@ -1529,7 +1567,7 @@ async function openProductEditor(product) {
     if ($('#edit-prod-image')) $('#edit-prod-image').value = product.image_path || '';
     if ($('#edit-prod-category')) $('#edit-prod-category').value = product.category;
     if ($('#edit-prod-active')) $('#edit-prod-active').checked = !!product.active;
-    if ($('#edit-prod-deduct-stock')) $('#edit-prod-deduct-stock').checked = product.deduct_stock !== 0;
+    if ($('#edit-prod-deduct-stock')) $('#edit-prod-deduct-stock').checked = window.useFirebaseStore&&product.deduct_stock==null ? false : product.deduct_stock !== 0&&product.deduct_stock!==false;
     if ($('#edit-prod-title')) $('#edit-prod-title').textContent = `✏️ แก้ไข: ${product.name}`;
     const delBtn = $('#btn-delete-product');
     if (delBtn) delBtn.style.display = 'inline-block';
@@ -1586,14 +1624,17 @@ async function resizeProductImage(file) {
   if (!file?.type?.startsWith('image/')) throw new Error('กรุณาเลือกไฟล์รูปภาพ');
   if (file.size > 12 * 1024 * 1024) throw new Error('ไฟล์รูปต้องมีขนาดไม่เกิน 12 MB');
   const source = await createImageBitmap(file);
-  const maxSide = 900;
+  const maxSide = 800;
   const scale = Math.min(1, maxSide / Math.max(source.width, source.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(source.width * scale));
   canvas.height = Math.max(1, Math.round(source.height * scale));
   canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
   source.close?.();
-  return canvas.toDataURL('image/jpeg', 0.78);
+  let quality=.82,result='';
+  do { result=canvas.toDataURL('image/jpeg',quality);quality-=.08; } while(result.length>700*1024&&quality>=.42);
+  if(result.length>700*1024)throw new Error('รูปมีรายละเอียดสูงเกินไป กรุณาเลือกรูปที่เล็กลง');
+  return result;
 }
 
 $('#edit-prod-image-upload') && ($('#edit-prod-image-upload').onchange = async event => {
@@ -1651,7 +1692,7 @@ function renderRecipeSelected() {
   selected.forEach(({ stock, quantity }) => {
     const row = document.createElement('article'); row.className = 'recipe-selected-row';
     const info = document.createElement('div'); info.className = 'recipe-selected-info';
-    info.innerHTML = `<strong>${displayName(stock)}</strong><small>${money(stock.cost_per_unit || 0)}/${stock.unit} · ต้นทุน ${money(Number(quantity) * Number(stock.cost_per_unit || 0))}</small>`;
+    info.innerHTML = `<strong>${escapeHtml(displayName(stock))}</strong><small>${money(stock.cost_per_unit || 0)}/${escapeHtml(stock.unit)} · ต้นทุน ${money(Number(quantity) * Number(stock.cost_per_unit || 0))}</small>`;
     const controls = document.createElement('div'); controls.className = 'recipe-quantity-controls';
     const minus = document.createElement('button'); minus.type = 'button'; minus.textContent = '−';
     const input = document.createElement('input'); input.type = 'number'; input.min = '0.01'; input.step = '0.01'; input.value = quantity;
@@ -1673,11 +1714,11 @@ function renderRecipeSelector() {
   Object.entries(labels).filter(([type]) => filter === 'all' || filter === type).forEach(([type, title]) => {
     const items = state.inventory.filter(stock => (type === 'equipment' ? stock.category === 'equipment' : stock.category !== 'equipment' && (stock.material_type || 'other') === type) && (!query || `${displayName(stock)} ${stock.stock_key}`.toLowerCase().includes(query)));
     if (!items.length) return;
-    const group = document.createElement('section'); group.className = 'recipe-selector-group'; group.innerHTML = `<h3>${title}</h3>`;
+    const group = document.createElement('section'); group.className = 'recipe-selector-group'; group.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
     items.forEach(stock => {
       const selected = recipeSelectorDraft.some(item => item.stock_key === stock.stock_key);
       const row = document.createElement('button'); row.type = 'button'; row.className = `recipe-selector-row${selected ? ' is-selected' : ''}`;
-      row.innerHTML = `<span class="recipe-selector-icon">${selected ? '✓' : '+'}</span><span><strong>${displayName(stock)}</strong><small>${stock.stock_key} · ${money(stock.cost_per_unit || 0)}/${stock.unit}</small></span><em>${selected ? 'เลือกแล้ว' : 'เลือก'}</em>`;
+      row.innerHTML = `<span class="recipe-selector-icon">${selected ? '✓' : '+'}</span><span><strong>${escapeHtml(displayName(stock))}</strong><small>${escapeHtml(stock.stock_key)} · ${money(stock.cost_per_unit || 0)}/${escapeHtml(stock.unit)}</small></span><em>${selected ? 'เลือกแล้ว' : 'เลือก'}</em>`;
       row.onclick = () => { setRecipeSelectorItem(stock.stock_key, selected ? 0 : 1); renderRecipeSelector(); }; group.append(row);
     }); root.append(group);
   });
@@ -1708,6 +1749,7 @@ if (saveProductBtn) {
     const customOptions = normalizeCustomOptionGroups(currentCustomOptionGroups);
 
     if (!name || isNaN(price) || price < 0) return alert('กรอกชื่อสินค้าและราคาให้ถูกต้อง');
+    if (deductStock && !currentEditRecipeItems.length) return showNotice('เมนูที่ตัด stock ต้องเลือกวัตถุดิบหรือบรรจุภัณฑ์อย่างน้อย 1 รายการ หรือปิด “ตัด stock”', 'error');
 
     try {
       let productId;
@@ -1796,7 +1838,6 @@ function refreshUnitCostPreview() {
 }
 ['#cost-inv-purchase-qty','#cost-inv-purchase-total'].forEach(selector => { const el=$(selector); if(el) el.oninput=refreshUnitCostPreview; });
 const newInventoryKey=()=>`item_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;
-$('#btn-cost-inventory') && ($('#btn-cost-inventory').onclick=()=>openCostInventory());
 $('#cost-inv-save') && ($('#cost-inv-save').onclick=async()=>{ const button=$('#cost-inv-save'),stockKey=($('#cost-inv-key')?.value||'').trim(),name=($('#cost-inv-name')?.value||'').trim(),unit=($('#cost-inv-unit')?.value||'').trim(),category=$('#cost-inv-category')?.value,materialType=$('#cost-inv-material-type')?.value||'other',quantity=Number($('#cost-inv-quantity')?.value),lowAlert=Number($('#cost-inv-low')?.value),purchaseQuantity=Number($('#cost-inv-purchase-qty')?.value),purchaseTotal=Number($('#cost-inv-purchase-total')?.value); if(!stockKey||!name||!unit||purchaseQuantity<=0||purchaseTotal<0)return showNotice('กรอกชื่อ หน่วย ปริมาณซื้อ และราคาซื้อให้ครบ','error'); if(!Number.isFinite(quantity)||quantity<0||!Number.isFinite(lowAlert)||lowAlert<0)return showNotice('จำนวนคงเหลือและจุดแจ้งเตือนต้องเป็นเลขศูนย์หรือมากกว่า','error'); try{if(button){button.disabled=true;button.textContent='กำลังบันทึก…';}await api(costInventoryEditingKey?`/api/admin/cost-inventory/${costInventoryEditingKey}`:'/api/admin/cost-inventory',{method:costInventoryEditingKey?'PUT':'POST',body:JSON.stringify({stockKey,name,unit,category,materialType,quantity,lowAlert,purchaseQuantity,purchaseTotal})});$('#cost-inventory-dialog')?.close();showNotice('บันทึกราคาซื้อและต้นทุนต่อหน่วยแล้ว');await load();await adminLoad();}catch(e){showNotice(`บันทึกไม่สำเร็จ: ${e.message}`,'error');}finally{if(button){button.disabled=false;button.textContent='บันทึกวัตถุดิบ';}} });
 
 const topMenuToggle = $('#top-menu-toggle');
@@ -1860,7 +1901,7 @@ async function renderAdminMembers() {
       container.append(row);
     });
   } catch (e) {
-    container.innerHTML = `<p style="color:#b42318;text-align:center;">โหลดสมาชิกไม่สำเร็จ: ${e.message}</p>`;
+    container.innerHTML = `<p style="color:#b42318;text-align:center;">โหลดสมาชิกไม่สำเร็จ: ${escapeHtml(e.message)}</p>`;
   }
 }
 
