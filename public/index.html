@@ -38,7 +38,10 @@
           <p class="eyebrow">POINT OF SALE</p>
           <h2>เลือกเมนู</h2>
         </div>
-        <span id="product-count" class="chip">0 เมนู</span>
+        <div class="catalog-heading-actions">
+          <span id="product-count" class="chip">0 เมนู</span>
+          <button type="button" id="quick-add-product-btn" class="catalog-add-btn">＋ สร้างเมนู</button>
+        </div>
       </div>
       <div class="toolbar">
         <label class="search">
@@ -327,6 +330,7 @@
             <option value="menu-images/pan-fried-eggs.png">ไข่กระทะ</option>
             <option value="menu-images/tub-tim-krob.png">ทับทิมกรอบ</option>
           </select>
+          <img id="edit-prod-image-preview" class="product-image-preview" alt="ตัวอย่างรูปเมนู" hidden>
         </div>
         
         <div style="margin-bottom: 16px;">

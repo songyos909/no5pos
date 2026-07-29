@@ -30,11 +30,11 @@ const menuImageFor = product => {
   if (product?.image_path) return String(product.image_path).replace(/^\/+/, '');
   const name = displayName(product).toLowerCase();
   const matches = [
-    [['เอสเพรสโซ่ร้อน', 'espresso (hot)', 'hot espresso'], 'menu-images/espresso-hot.png'],
-    [['เอสเพรสโซ่เย็น', 'iced espresso'], 'menu-images/espresso-iced.png'],
+    [['เอสเพรสโซ่ร้อน', 'เอสเปรสโซ่ร้อน', 'espresso (hot)', 'hot espresso'], 'menu-images/espresso-hot.png'],
+    [['เอสเพรสโซ่เย็น', 'เอสเปรสโซ่เย็น', 'iced espresso'], 'menu-images/espresso-iced.png'],
     [['อเมริกาโน่', 'americano'], 'menu-images/americano-iced.png'],
     [['คาปูชิโน่', 'cappuccino'], 'menu-images/cappuccino-hot.png'],
-    [['คาราเมลมัคคิอาโต้', 'caramel macchiato'], 'menu-images/caramel-macchiato-iced.png'],
+    [['คาราเมลมัคคิอาโต้', 'คาราเมลมัคคิอาโต', 'caramel macchiato'], 'menu-images/caramel-macchiato-iced.png'],
     [['มัทฉะ', 'matcha'], 'menu-images/matcha-latte.png'],
     [['มอคค่า', 'mocha'], 'menu-images/mocha-iced.png'],
     [['ลาเต้', 'latte'], 'menu-images/latte-iced.png'],
@@ -217,6 +217,7 @@ function renderCategoryTabs() {
 }
 
 function getStockStatus(product) {
+  if (product.deduct_stock === 0 || product.deduct_stock === false || (window.useFirebaseStore && product.deduct_stock == null)) return 'ok';
   const recipe = state.recipesData.find(r => r.id === product.id);
   let isOut = false, isLow = false;
 
@@ -298,7 +299,11 @@ function renderProducts() {
     }
 
     let pressTimer, longPressed = false;
-    card.onclick = () => { if (longPressed) { longPressed = false; return; } openModifierModal(p); };
+    card.onclick = () => {
+      if (longPressed) { longPressed = false; return; }
+      if (['coffee', 'tea'].includes(p.category)) openModifierModal(p);
+      else addToCart(p, { temperature:'', sweetness:100, milk:'', toppings:[] });
+    };
     card.onpointerdown = () => { longPressed = false; pressTimer = setTimeout(() => { pressTimer = null; longPressed = true; showRecipePopover(p); }, 600); };
     ['pointerup','pointerleave','pointercancel'].forEach(event => card.addEventListener(event, () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = null; }));
 
@@ -1352,7 +1357,16 @@ async function openProductEditor(product) {
   }
 
   renderEditRecipeItems();
+  updateProductImagePreview();
   $('#product-edit-dialog')?.showModal();
+}
+
+function updateProductImagePreview() {
+  const preview = $('#edit-prod-image-preview');
+  const imagePath = $('#edit-prod-image')?.value;
+  if (!preview) return;
+  preview.hidden = !imagePath;
+  if (imagePath) preview.src = new URL(String(imagePath).replace(/^\/+/, ''), document.baseURI).href;
 }
 
 // "Add new product" button
@@ -1493,6 +1507,22 @@ if (deleteProductBtn) {
 const searchEl = $('#search');
 if (searchEl) searchEl.oninput = renderProducts;
 
+const quickAddProductBtn = $('#quick-add-product-btn');
+if (quickAddProductBtn) quickAddProductBtn.onclick = async () => {
+  if (!window.useFirebaseStore && !adminPin) {
+    $('#settings')?.showModal();
+    $('#pin')?.focus();
+    showNotice('กรอก Admin PIN ก่อนสร้างเมนู', 'error');
+    return;
+  }
+  try {
+    if (!state.categories.length) await load();
+    await openProductEditor(null);
+  } catch (e) {
+    showNotice(`เปิดหน้าสร้างเมนูไม่สำเร็จ: ${e.message}`, 'error');
+  }
+};
+
 const discountEl = $('#discount');
 if (discountEl) discountEl.oninput = renderCart;
 
@@ -1501,6 +1531,7 @@ if (checkoutBtn) checkoutBtn.onclick = checkout;
 
 $('#edit-prod-price') && ($('#edit-prod-price').oninput = renderEditRecipeItems);
 $('#edit-prod-margin') && ($('#edit-prod-margin').oninput = renderEditRecipeItems);
+$('#edit-prod-image') && ($('#edit-prod-image').onchange = updateProductImagePreview);
 
 function refreshUnitCostPreview() {
   const qty=Number($('#cost-inv-purchase-qty')?.value)||0, total=Number($('#cost-inv-purchase-total')?.value)||0;
