@@ -401,6 +401,15 @@ input:focus {
   transition: transform 0.2s ease;
 }
 
+.product .product-image {
+  display: block;
+  width: calc(100% + 32px);
+  height: 112px;
+  margin: -16px -16px 12px;
+  object-fit: cover;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
 .product:hover span {
   transform: scale(1.1);
 }

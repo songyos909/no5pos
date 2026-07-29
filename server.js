@@ -20,7 +20,7 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 db.exec(`
-CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), category TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '☕', active INTEGER NOT NULL DEFAULT 1, stock_key TEXT, deduct_stock INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), category TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '☕', active INTEGER NOT NULL DEFAULT 1, stock_key TEXT, deduct_stock INTEGER NOT NULL DEFAULT 1, image_path TEXT);
 CREATE TABLE IF NOT EXISTS inventory (stock_key TEXT PRIMARY KEY, name TEXT NOT NULL, unit TEXT NOT NULL, quantity REAL NOT NULL DEFAULT 0, low_alert REAL NOT NULL DEFAULT 0, category TEXT NOT NULL DEFAULT 'raw');
 CREATE TABLE IF NOT EXISTS recipes (product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE, ingredients TEXT NOT NULL, steps TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS members (phone TEXT PRIMARY KEY, name TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0);
@@ -68,6 +68,16 @@ CREATE TABLE IF NOT EXISTS recipe_items (
 `);
 db.exec(`CREATE TABLE IF NOT EXISTS recipe_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, items_json TEXT NOT NULL, created_at TEXT NOT NULL)`);
 try { db.exec('ALTER TABLE products ADD COLUMN deduct_stock INTEGER NOT NULL DEFAULT 1'); } catch {}
+try { db.exec('ALTER TABLE products ADD COLUMN image_path TEXT'); } catch {}
+db.prepare("UPDATE products SET image_path='/menu-images/matcha-latte.png' WHERE image_path IS NULL AND lower(name) LIKE '%matcha%'").run();
+db.prepare("UPDATE products SET image_path='/menu-images/thai-tea.png' WHERE image_path IS NULL AND (name LIKE '%ชาไทย%' OR lower(name) LIKE '%thai tea%')").run();
+db.prepare("UPDATE products SET image_path='/menu-images/espresso-hot.png' WHERE image_path IS NULL AND (name LIKE '%เอสเพรสโซ่ร้อน%' OR lower(name) LIKE '%espresso%hot%')").run();
+db.prepare("UPDATE products SET image_path='/menu-images/espresso-iced.png' WHERE image_path IS NULL AND (name LIKE '%เอสเพรสโซ่เย็น%' OR lower(name) LIKE '%iced espresso%')").run();
+db.prepare("UPDATE products SET image_path='/menu-images/americano-iced.png' WHERE image_path IS NULL AND (name LIKE '%อเมริกาโน่%' OR lower(name) LIKE '%americano%')").run();
+db.prepare("UPDATE products SET image_path='/menu-images/latte-iced.png' WHERE image_path IS NULL AND lower(name) LIKE '%latte%' AND lower(name) NOT LIKE '%matcha%'").run();
+db.prepare("UPDATE products SET image_path='/menu-images/cappuccino-hot.png' WHERE image_path IS NULL AND (name LIKE '%คาปูชิโน่%' OR lower(name) LIKE '%cappuccino%')").run();
+db.prepare("UPDATE products SET image_path='/menu-images/mocha-iced.png' WHERE image_path IS NULL AND (name LIKE '%มอคค่า%' OR lower(name) LIKE '%mocha%')").run();
+db.prepare("UPDATE products SET image_path='/menu-images/caramel-macchiato-iced.png' WHERE image_path IS NULL AND (name LIKE '%คาราเมลมัคคิอาโต้%' OR lower(name) LIKE '%caramel macchiato%')").run();
 
 // Migration: Update category column to use ingredient / equipment
 try {
@@ -458,18 +468,18 @@ app.put('/api/admin/products/:id/costing', admin, (req,res) => {
   const r=db.prepare('UPDATE products SET price=?,target_margin=? WHERE id=?').run(price,targetMargin,req.params.id);return r.changes?res.json({ok:true}):fail(res,'ไม่พบเมนู',404);
 });
 
-app.post('/api/admin/products', admin, (req,res) => { 
-  const {name,price,category,emoji='☕',stockKey=null,deductStock=true}=req.body||{}; 
-  if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง'); 
-  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key,deduct_stock) VALUES (?,?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey,deductStock?1:0); 
-  res.status(201).json({id:result.lastInsertRowid}); 
+app.post('/api/admin/products', admin, (req,res) => {
+  const {name,price,category,emoji='☕',stockKey=null,deductStock=true,imagePath=null}=req.body||{};
+  if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง');
+  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key,deduct_stock,image_path) VALUES (?,?,?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey,deductStock?1:0,imagePath||null);
+  res.status(201).json({id:result.lastInsertRowid});
 });
 
-app.put('/api/admin/products/:id', admin, (req,res) => { 
-  const {name,price,category,emoji='☕',active=true,stockKey=null,deductStock=true}=req.body||{}; 
-  if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง'); 
-  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=?,deduct_stock=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,deductStock?1:0,req.params.id); 
-  return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสินค้า',404); 
+app.put('/api/admin/products/:id', admin, (req,res) => {
+  const {name,price,category,emoji='☕',active=true,stockKey=null,deductStock=true,imagePath=null}=req.body||{};
+  if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง');
+  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=?,deduct_stock=?,image_path=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,deductStock?1:0,imagePath||null,req.params.id);
+  return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสินค้า',404);
 });
 
 app.delete('/api/admin/products/:id', admin, (req,res) => {
