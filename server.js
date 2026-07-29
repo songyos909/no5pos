@@ -69,15 +69,15 @@ CREATE TABLE IF NOT EXISTS recipe_items (
 db.exec(`CREATE TABLE IF NOT EXISTS recipe_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, items_json TEXT NOT NULL, created_at TEXT NOT NULL)`);
 try { db.exec('ALTER TABLE products ADD COLUMN deduct_stock INTEGER NOT NULL DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE products ADD COLUMN image_path TEXT'); } catch {}
-db.prepare("UPDATE products SET image_path='/menu-images/matcha-latte.png' WHERE image_path IS NULL AND lower(name) LIKE '%matcha%'").run();
-db.prepare("UPDATE products SET image_path='/menu-images/thai-tea.png' WHERE image_path IS NULL AND (name LIKE '%ชาไทย%' OR lower(name) LIKE '%thai tea%')").run();
-db.prepare("UPDATE products SET image_path='/menu-images/espresso-hot.png' WHERE image_path IS NULL AND (name LIKE '%เอสเพรสโซ่ร้อน%' OR lower(name) LIKE '%espresso%hot%')").run();
-db.prepare("UPDATE products SET image_path='/menu-images/espresso-iced.png' WHERE image_path IS NULL AND (name LIKE '%เอสเพรสโซ่เย็น%' OR lower(name) LIKE '%iced espresso%')").run();
-db.prepare("UPDATE products SET image_path='/menu-images/americano-iced.png' WHERE image_path IS NULL AND (name LIKE '%อเมริกาโน่%' OR lower(name) LIKE '%americano%')").run();
-db.prepare("UPDATE products SET image_path='/menu-images/latte-iced.png' WHERE image_path IS NULL AND lower(name) LIKE '%latte%' AND lower(name) NOT LIKE '%matcha%'").run();
-db.prepare("UPDATE products SET image_path='/menu-images/cappuccino-hot.png' WHERE image_path IS NULL AND (name LIKE '%คาปูชิโน่%' OR lower(name) LIKE '%cappuccino%')").run();
-db.prepare("UPDATE products SET image_path='/menu-images/mocha-iced.png' WHERE image_path IS NULL AND (name LIKE '%มอคค่า%' OR lower(name) LIKE '%mocha%')").run();
-db.prepare("UPDATE products SET image_path='/menu-images/caramel-macchiato-iced.png' WHERE image_path IS NULL AND (name LIKE '%คาราเมลมัคคิอาโต้%' OR lower(name) LIKE '%caramel macchiato%')").run();
+db.prepare("UPDATE products SET image_path='menu-images/matcha-latte.png' WHERE image_path IS NULL AND lower(name) LIKE '%matcha%'").run();
+db.prepare("UPDATE products SET image_path='menu-images/thai-tea.png' WHERE image_path IS NULL AND (name LIKE '%ชาไทย%' OR lower(name) LIKE '%thai tea%')").run();
+db.prepare("UPDATE products SET image_path='menu-images/espresso-hot.png' WHERE image_path IS NULL AND (name LIKE '%เอสเพรสโซ่ร้อน%' OR lower(name) LIKE '%espresso%hot%')").run();
+db.prepare("UPDATE products SET image_path='menu-images/espresso-iced.png' WHERE image_path IS NULL AND (name LIKE '%เอสเพรสโซ่เย็น%' OR lower(name) LIKE '%iced espresso%')").run();
+db.prepare("UPDATE products SET image_path='menu-images/americano-iced.png' WHERE image_path IS NULL AND (name LIKE '%อเมริกาโน่%' OR lower(name) LIKE '%americano%')").run();
+db.prepare("UPDATE products SET image_path='menu-images/latte-iced.png' WHERE image_path IS NULL AND lower(name) LIKE '%latte%' AND lower(name) NOT LIKE '%matcha%'").run();
+db.prepare("UPDATE products SET image_path='menu-images/cappuccino-hot.png' WHERE image_path IS NULL AND (name LIKE '%คาปูชิโน่%' OR lower(name) LIKE '%cappuccino%')").run();
+db.prepare("UPDATE products SET image_path='menu-images/mocha-iced.png' WHERE image_path IS NULL AND (name LIKE '%มอคค่า%' OR lower(name) LIKE '%mocha%')").run();
+db.prepare("UPDATE products SET image_path='menu-images/caramel-macchiato-iced.png' WHERE image_path IS NULL AND (name LIKE '%คาราเมลมัคคิอาโต้%' OR lower(name) LIKE '%caramel macchiato%')").run();
 
 // Migration: Update category column to use ingredient / equipment
 try {
