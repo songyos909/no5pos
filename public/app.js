@@ -27,7 +27,7 @@ const $ = s => document.querySelector(s);
 const money = n => `฿${Number(n || 0).toFixed(2)}`;
 const displayName = item => item?.name_th || item?.name || '';
 const menuImageFor = product => {
-  if (product?.image_path) return product.image_path;
+  if (product?.image_path) return String(product.image_path).replace(/^\/+/, '');
   const name = displayName(product).toLowerCase();
   const matches = [
     [['เอสเพรสโซ่ร้อน', 'espresso (hot)', 'hot espresso'], 'menu-images/espresso-hot.png'],
@@ -268,7 +268,7 @@ function renderProducts() {
     const imagePath = menuImageFor(p);
     const visual = imagePath ? document.createElement('img') : document.createElement('span');
     if (imagePath) {
-      visual.src = imagePath;
+      visual.src = new URL(imagePath, document.baseURI).href;
       visual.alt = p.name;
       visual.className = 'product-image';
       visual.loading = 'lazy';
