@@ -1357,6 +1357,46 @@ dialog:not(#kds-dialog) #firebase-login-btn::before { content:'→ '; }
 dialog:not(#kds-dialog) #calc-submit-btn::before { content:'→ '; }
 dialog:not(#kds-dialog) #receipt-dialog header { padding-right:58px; }
 @media (max-width:480px) { dialog:not(#kds-dialog) header { padding-left:54px; padding-right:142px; } dialog:not(#kds-dialog) .touch-dialog-footer .primary, dialog:not(#kds-dialog) #btn-save-product-edit, dialog:not(#kds-dialog) #cost-inv-save, dialog:not(#kds-dialog) #recipe-selector-apply, dialog:not(#kds-dialog) #calc-submit-btn, dialog:not(#kds-dialog) #firebase-login-btn { right:16px; padding:0 12px; font-size:12px; } }
+
+/* Clear, unblocked dialog titles and compact management controls. */
+dialog:not(#kds-dialog) header { padding-left:0; padding-right:64px; }
+dialog:not(#kds-dialog) header .close {
+  position:absolute;
+  top:6px;
+  right:0;
+  left:auto;
+}
+dialog:not(#kds-dialog) .touch-dialog-footer .primary,
+dialog:not(#kds-dialog) #btn-save-product-edit,
+dialog:not(#kds-dialog) #cost-inv-save,
+dialog:not(#kds-dialog) #recipe-selector-apply,
+dialog:not(#kds-dialog) #calc-submit-btn,
+dialog:not(#kds-dialog) #firebase-login-btn {
+  position:static;
+}
+.category-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.category-toolbar .category-tabs { flex:1; min-width:0; margin:0; }
+.category-toolbar .catalog-add-btn { flex:0 0 auto; white-space:nowrap; }
+.image-upload-button {
+  display:inline-flex; align-items:center; justify-content:center; min-height:42px;
+  margin-top:8px; padding:0 14px; border:1px dashed #b8957f; border-radius:10px;
+  background:#fff9f4; color:var(--primary); font-size:12px; font-weight:700; cursor:pointer;
+}
+.image-upload-button:hover { background:#f6ebe2; }
+#edit-prod-image-upload-status { display:block; margin-top:5px; }
+.delivery-table-wrap { width:100%; overflow:auto; border:1px solid #eadbd0; border-radius:12px; background:#fff; }
+.delivery-price-table { width:100%; min-width:760px; border-collapse:collapse; font-size:12px; }
+.delivery-price-table th,.delivery-price-table td { padding:9px; border-bottom:1px solid #f0e5dc; text-align:left; vertical-align:middle; }
+.delivery-price-table thead th { position:sticky; top:0; z-index:1; background:#f6eee7; color:var(--primary); }
+.delivery-price-table thead small { display:block; color:var(--text-muted); font-weight:500; }
+.delivery-price-table tbody th { min-width:170px; color:var(--primary); }
+.delivery-price-table input { width:100%; min-width:105px; padding:7px; border:1px solid #dfcec0; border-radius:7px; }
+.delivery-price-table .primary-btn { min-height:38px; padding:6px 12px; white-space:nowrap; }
+@media (max-width:640px) {
+  dialog:not(#kds-dialog) header { padding-right:54px; }
+  .category-toolbar { align-items:stretch; flex-direction:column; }
+  .category-toolbar .catalog-add-btn { width:100%; }
+}
 .kds-shell { min-height:100%; padding:clamp(18px,3vw,42px); }
 .kds-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; padding-top:24px; }
 .kds-card { min-height:280px; padding:22px; border-radius:18px; border:3px solid; display:flex; flex-direction:column; box-shadow:var(--shadow-md); }

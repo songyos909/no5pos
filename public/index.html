@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=20260729-4">
 </head>
 <body>
   <header class="topbar">
@@ -50,7 +50,10 @@
         </label>
       </div>
       <!-- Category quick filter tabs -->
-      <div id="category-tabs" class="category-tabs"></div>
+      <div class="category-toolbar">
+        <div id="category-tabs" class="category-tabs"></div>
+        <button type="button" id="quick-add-category-btn" class="catalog-add-btn">＋ สร้างหมวดหมู่</button>
+      </div>
       
       <div id="products" class="grid" aria-live="polite"></div>
     </section>
@@ -330,6 +333,9 @@
             <option value="menu-images/pan-fried-eggs.png">ไข่กระทะ</option>
             <option value="menu-images/tub-tim-krob.png">ทับทิมกรอบ</option>
           </select>
+          <label class="image-upload-button" for="edit-prod-image-upload">📷 อัปโหลดรูปจากเครื่อง</label>
+          <input id="edit-prod-image-upload" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+          <small id="edit-prod-image-upload-status" class="hint">รองรับ JPG, PNG และ WebP ระบบจะย่อรูปให้อัตโนมัติ</small>
           <img id="edit-prod-image-preview" class="product-image-preview" alt="ตัวอย่างรูปเมนู" hidden>
         </div>
         
@@ -613,7 +619,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260729-3"></script>
-  <script src="./app.js?v=20260729-3"></script>
+  <script src="./firebase-client.js?v=20260729-4"></script>
+  <script src="./app.js?v=20260729-4"></script>
 </body>
 </html>
