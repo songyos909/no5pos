@@ -1288,6 +1288,7 @@ async function openProductEditor(product) {
     if ($('#edit-prod-emoji')) $('#edit-prod-emoji').value = product.emoji;
     if ($('#edit-prod-category')) $('#edit-prod-category').value = product.category;
     if ($('#edit-prod-active')) $('#edit-prod-active').checked = !!product.active;
+    if ($('#edit-prod-deduct-stock')) $('#edit-prod-deduct-stock').checked = product.deduct_stock !== 0;
     if ($('#edit-prod-title')) $('#edit-prod-title').textContent = `✏️ แก้ไข: ${product.name}`;
     const delBtn = $('#btn-delete-product');
     if (delBtn) delBtn.style.display = 'inline-block';
@@ -1309,6 +1310,7 @@ async function openProductEditor(product) {
     if ($('#edit-prod-emoji')) $('#edit-prod-emoji').value = '☕';
     if ($('#edit-prod-category')) $('#edit-prod-category').value = state.categories[0]?.category_key || 'coffee';
     if ($('#edit-prod-active')) $('#edit-prod-active').checked = true;
+    if ($('#edit-prod-deduct-stock')) $('#edit-prod-deduct-stock').checked = true;
     if ($('#edit-recipe-description')) $('#edit-recipe-description').value = '';
     if ($('#edit-prod-title')) $('#edit-prod-title').textContent = '➕ เพิ่มสินค้าใหม่';
     const delBtn = $('#btn-delete-product');
@@ -1405,6 +1407,7 @@ if (saveProductBtn) {
     const category = $('#edit-prod-category')?.value || 'other';
     const emoji = ($('#edit-prod-emoji')?.value || '☕').slice(0, 8);
     const active = !!$('#edit-prod-active')?.checked;
+    const deductStock = !!$('#edit-prod-deduct-stock')?.checked;
     const description = ($('#edit-recipe-description')?.value || '').trim();
 
     if (!name || isNaN(price) || price < 0) return alert('กรอกชื่อสินค้าและราคาให้ถูกต้อง');
@@ -1412,12 +1415,12 @@ if (saveProductBtn) {
     try {
       let productId;
       if (id) {
-        await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, category, emoji, active }) });
+        await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, category, emoji, active, deductStock }) });
         await api(`/api/admin/products/${id}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         productId = Number(id);
         showNotice('บันทึกข้อมูลสินค้าสำเร็จ!');
       } else {
-        const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, category, emoji }) });
+        const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, category, emoji, deductStock }) });
         productId = res.id;
         await api(`/api/admin/products/${productId}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         showNotice('เพิ่มสินค้าใหม่สำเร็จ!');
