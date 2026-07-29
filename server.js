@@ -20,7 +20,7 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 db.exec(`
-CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), category TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '☕', active INTEGER NOT NULL DEFAULT 1, stock_key TEXT);
+CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), category TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '☕', active INTEGER NOT NULL DEFAULT 1, stock_key TEXT, deduct_stock INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS inventory (stock_key TEXT PRIMARY KEY, name TEXT NOT NULL, unit TEXT NOT NULL, quantity REAL NOT NULL DEFAULT 0, low_alert REAL NOT NULL DEFAULT 0, category TEXT NOT NULL DEFAULT 'raw');
 CREATE TABLE IF NOT EXISTS recipes (product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE, ingredients TEXT NOT NULL, steps TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS members (phone TEXT PRIMARY KEY, name TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0);
@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS recipe_items (
 )
 `);
 db.exec(`CREATE TABLE IF NOT EXISTS recipe_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, items_json TEXT NOT NULL, created_at TEXT NOT NULL)`);
+try { db.exec('ALTER TABLE products ADD COLUMN deduct_stock INTEGER NOT NULL DEFAULT 1'); } catch {}
 
 // Migration: Update category column to use ingredient / equipment
 try {
@@ -263,9 +264,9 @@ app.post('/api/orders', (req,res) => {
         subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
       }
       const finalDiscount=Math.min(Number(discount),subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
-      for(const {product,qty} of lines) for(const item of requireRecipe(product)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
+      for(const {product,qty} of lines) if(product.deduct_stock) for(const item of requireRecipe(product)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
       db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,memberPhone||null,received,changeDue);
-      for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name_th||product.name,unitPrice,qty,JSON.stringify(options)); for(const item of requireRecipe(product)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
+      for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name_th||product.name,unitPrice,qty,JSON.stringify(options)); if(product.deduct_stock) for(const item of requireRecipe(product)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
       
       let memberPoints = 0;
       if(memberPhone && enabled('members')) {
@@ -307,6 +308,7 @@ app.post('/api/orders-legacy', (req,res) => {
       
       // Stock checks (Structured Recipes verification)
       for (const {product,qty} of lines) {
+        if (!product.deduct_stock) continue;
         const recipeItems = getRecipeItems(product.id, product.stock_key);
         for (const item of recipeItems) {
           const stock = db.prepare('SELECT name, quantity FROM inventory WHERE stock_key=?').get(item.stock_key);
@@ -322,6 +324,7 @@ app.post('/api/orders-legacy', (req,res) => {
         db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name,product.price,qty,JSON.stringify(options));
         
         // Multi-item inventory reductions
+        if (!product.deduct_stock) continue;
         const recipeItems = getRecipeItems(product.id, product.stock_key);
         for (const item of recipeItems) {
           db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity * qty, item.stock_key);
@@ -456,16 +459,16 @@ app.put('/api/admin/products/:id/costing', admin, (req,res) => {
 });
 
 app.post('/api/admin/products', admin, (req,res) => { 
-  const {name,price,category,emoji='☕',stockKey=null}=req.body||{}; 
+  const {name,price,category,emoji='☕',stockKey=null,deductStock=true}=req.body||{}; 
   if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง'); 
-  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key) VALUES (?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey); 
+  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key,deduct_stock) VALUES (?,?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey,deductStock?1:0); 
   res.status(201).json({id:result.lastInsertRowid}); 
 });
 
 app.put('/api/admin/products/:id', admin, (req,res) => { 
-  const {name,price,category,emoji='☕',active=true,stockKey=null}=req.body||{}; 
+  const {name,price,category,emoji='☕',active=true,stockKey=null,deductStock=true}=req.body||{}; 
   if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง'); 
-  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,req.params.id); 
+  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=?,deduct_stock=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,deductStock?1:0,req.params.id); 
   return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสินค้า',404); 
 });
 
