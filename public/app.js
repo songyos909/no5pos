@@ -157,7 +157,8 @@ function renderTopMenu() {
   if (!list) return;
   const items = [
     ['pos', '🛒 หน้าขาย'], ['kds', '☕ คิวชง / Kitchen View'], ['products', '🍕 จัดการเมนูและสูตร'],
-    ['inventory', '📦 สต็อกและต้นทุน'], ['pricing', '💰 ราคาออนไลน์ / GP'], ['members', '👤 สมาชิก'], ['reports', '📊 รายงาน']
+    ['inventory', '📦 สต็อกและต้นทุน'], ['pricing', '💰 ราคาออนไลน์ / GP'], ['members', '👤 สมาชิก'], ['reports', '📊 รายงาน'],
+    ['settings', '⚙️ ตั้งค่าร้าน']
   ];
   list.replaceChildren(...items.filter(([key]) => key === 'pos' || state.features[key] !== false).map(([key,label]) => {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
@@ -185,6 +186,7 @@ function openModule(key) {
   if (key === 'pos') { window.scrollTo({top:0,behavior:'smooth'}); return; }
   if (key === 'reports') { const rb = $('#reportsBtn'); rb && rb.click(); return; }
   if (key === 'kds') { openKdsMode(); return; }
+  if (key === 'settings') { openAdminWindow('tab-features', 'ตั้งค่าร้าน'); return; }
   if (key === 'inventory' || key === 'members' || key === 'recipes' || key === 'products' || key === 'pricing') {
     const tab = key === 'products' || key === 'recipes' ? 'tab-products' : key === 'pricing' ? 'tab-pricing' : key === 'members' ? 'tab-members' : 'tab-inventory';
     const title = key === 'products' || key === 'recipes' ? 'จัดการเมนูและสูตรชง' : key === 'pricing' ? 'ราคาออนไลน์และต้นทุน' : key === 'members' ? 'ระบบสมาชิก' : 'สต็อกวัตถุดิบ';
@@ -349,6 +351,11 @@ function showRecipePopover(product) {
 
 // ── Cart ───────────────────────────────────────────────────────
 function canAddToCart(product, deltaQty = 1) {
+  // Menus that do not deduct stock can be sold without a recipe. Firebase
+  // legacy products have no deduct_stock field, so keep them sellable too.
+  const deductsStock = product.deduct_stock === true || product.deduct_stock === 1;
+  if (!deductsStock) return { ok: true };
+
   const recipe = state.recipesData.find(r => r.id === product.id);
   const currentQty = state.cart.filter(x => x.product.id === product.id).reduce((sum, x) => sum + x.qty, 0);
   const newQty = currentQty + deltaQty;
