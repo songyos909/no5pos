@@ -51,6 +51,13 @@
       defaults.channels.forEach(([id,name,gp_percent])=>batch.set(db.collection('channels').doc(id),{name,gp_percent,active:true}));
       await batch.commit();
     }
+    const optionLibrarySetup=db.collection('settings').doc('optionLibrary');
+    if(!(await optionLibrarySetup.get()).exists){
+      const batch=db.batch();
+      batch.set(db.collection('optionGroups').doc('type'),{id:'type',name:'ประเภท',choices:[{id:'hot',label:'ร้อน',price:0},{id:'iced',label:'เย็น',price:0},{id:'blended',label:'ปั่น',price:10}]});
+      batch.set(optionLibrarySetup,{initialized:true});
+      await batch.commit();
+    }
     // เติมเมนูตัวอย่างเฉพาะร้านใหม่; ร้านที่กดรีเซ็ตต้องเริ่มจากข้อมูลว่างจริง ๆ
     if (!resetCompleted) {
     const currentProducts = await db.collection('products').get();
@@ -82,13 +89,18 @@
   if(loginButton) loginButton.onclick=async()=>{const email=document.querySelector('#firebase-email')?.value||'',password=document.querySelector('#firebase-password')?.value||'',error=document.querySelector('#firebase-login-error');try{await auth.signInWithEmailAndPassword(email,password);if(error)error.textContent='';}catch(e){if(error)error.textContent=e.message;}};
   if (!auth.currentUser) document.querySelector('#firebase-login-dialog')?.showModal();
   const docs = async name => (await db.collection(name).get()).docs.map(d=>({id:d.id,...d.data()}));
+  const syncFirebaseOptionGroup = async (groupId,replacement=null) => {
+    const products=await docs('products'),batch=db.batch();let changes=0;
+    products.forEach(product=>{const groups=Array.isArray(product.custom_options)?product.custom_options:[];if(!groups.some(group=>group.id===groupId))return;const next=replacement?groups.map(group=>group.id===groupId?replacement:group):groups.filter(group=>group.id!==groupId);batch.set(db.collection('products').doc(String(product.id)),{custom_options:next},{merge:true});changes++;});
+    if(changes)await batch.commit();
+  };
   const body = opts => typeof opts?.body === 'string' ? JSON.parse(opts.body) : (opts?.body || {});
   const err = (message,status=400) => { const e=new Error(message);e.status=status;throw e; };
   const uid = () => `TX-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2,6).toUpperCase()}`;
   window.firebaseApi = async (url,opts={}) => {
     await window.firebaseReady;
     const path=url.replace(/^\/api\//,'').replace(/^\//,''); const method=(opts.method||'GET').toUpperCase(); const data=body(opts);
-    if(path==='bootstrap' && method==='GET') { const [products,inventory,categories,channels,settings]=await Promise.all([docs('products'),docs('inventory'),docs('categories'),docs('channels'),db.collection('settings').doc('features').get()]); const categoryRows=categories.length?categories.filter(x=>x.active!==false).map(x=>({category_key:x.id,...x})):defaults.categories.map(([category_key,name])=>({category_key,name,active:true}));const channelRows=channels.length?channels.filter(x=>x.active!==false).map(x=>({channel_key:x.id,...x})):defaults.channels.map(([channel_key,name,gp_percent])=>({channel_key,name,gp_percent,active:true}));return {products:products.filter(x=>x.active!==false).map(x=>({id:Number(x.id)||x.id,...localized(x)})),inventory:inventory.map(x=>({stock_key:x.id,...localized(x)})),categories:categoryRows,channels:channelRows,features:settings.data()||defaults.features,membersEnabled:true}; }
+    if(path==='bootstrap' && method==='GET') { const [products,inventory,categories,channels,optionGroups,settings]=await Promise.all([docs('products'),docs('inventory'),docs('categories'),docs('channels'),docs('optionGroups'),db.collection('settings').doc('features').get()]); const categoryRows=categories.length?categories.filter(x=>x.active!==false).map(x=>({category_key:x.id,...x})):defaults.categories.map(([category_key,name])=>({category_key,name,active:true}));const channelRows=channels.length?channels.filter(x=>x.active!==false).map(x=>({channel_key:x.id,...x})):defaults.channels.map(([channel_key,name,gp_percent])=>({channel_key,name,gp_percent,active:true}));return {products:products.filter(x=>x.active!==false).map(x=>({id:Number(x.id)||x.id,...localized(x)})),inventory:inventory.map(x=>({stock_key:x.id,...localized(x)})),categories:categoryRows,channels:channelRows,optionGroups,features:settings.data()||defaults.features,membersEnabled:true}; }
     if(path==='recipes' && method==='GET') { const [products,items,recipes,inventory]=await Promise.all([docs('products'),docs('recipeItems'),docs('recipes'),docs('inventory')]); const inv=Object.fromEntries(inventory.map(x=>[x.id,localized(x)])); const recipeMap=Object.fromEntries(recipes.map(x=>[x.id,x])); return products.filter(x=>x.active!==false).map(p=>({id:p.id,name:localized(p).name,emoji:p.emoji,description:recipeMap[p.id]?.description||'',items:items.filter(x=>x.product_id==p.id).map(x=>({stock_key:x.stock_key,quantity:x.quantity,name:inv[x.stock_key]?.name||x.stock_key,unit:inv[x.stock_key]?.unit||''}))})); }
     if(path==='reports/today' && method==='GET') { const orders=await docs('orders');const thaiDay=v=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(v));const day=thaiDay(Date.now());const today=orders.filter(x=>x.createdAt&&thaiDay(x.createdAt)===day),store=today.filter(x=>(x.salesChannel||'store')!=='online'),online=today.filter(x=>x.salesChannel==='online');return {orders:store.length,sales:store.reduce((n,x)=>n+Number(x.total||0),0),storeOrders:store.length,storeSales:store.reduce((n,x)=>n+Number(x.total||0),0),onlineOrders:online.length,onlineSales:online.reduce((n,x)=>n+Number(x.total||0),0),onlineNet:online.reduce((n,x)=>n+Number(x.onlineNet??(Number(x.total||0)*(1-Number(x.gpPercent||0)/100))),0)}; }
     if(path==='reports/transactions' && method==='GET') { const [orders,items]=await Promise.all([docs('orders'),docs('orderItems')]);return orders.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).slice(0,50).map(o=>({id:o.id,created_at:o.createdAt,subtotal:Number(o.subtotal||0),discount:Number(o.discount||0),total:Number(o.total||0),payment_type:o.paymentType||o.payment_type||'cash',sales_channel:o.salesChannel||'store',online_platform:o.onlinePlatform||null,gp_percent:Number(o.gpPercent||0),online_net:Number(o.onlineNet??o.total??0),member_phone:o.memberPhone||null,received:Number(o.received||0),change_due:Number(o.changeDue||0),items:items.filter(x=>x.order_id===o.id).map(x=>({name:x.name,product_id:x.product_id||null,unit_price:Number(x.unit_price||0),quantity:Number(x.quantity||0),options_json:x.options_json||'{}'}))})); }
@@ -111,10 +123,8 @@
           const selected=choices.find(choice=>String(choice.id)===String(i.options?.custom?.[group.id]))||choices[0];
           if(selected){custom[group.id]=selected.id;custom_labels.push(`${group.name}: ${selected.label}`);customExtra+=Math.max(0,Number(selected.price)||0);}
         });
-        const hasDrinkModifiers=['coffee','tea'].includes(p.category);
-        const o={...(i.options||{}),temperature:hasDrinkModifiers&&['hot','iced','blended'].includes(i.options?.temperature)?i.options.temperature:'',sweetness:hasDrinkModifiers&&[0,50,100].includes(Number(i.options?.sweetness))?Number(i.options.sweetness):100,milk:hasDrinkModifiers?'fresh':'',toppings:hasDrinkModifiers?(i.options?.toppings||[]).filter(x=>x==='extraShot'):[],custom,custom_labels};
-        const plus=o.toppings.includes('extraShot')?20:0;
-        return {product:p,quantity:Number(i.quantity),options:o,unit_price:Number(p.price)+plus+customExtra};
+        const o={custom,custom_labels};
+        return {product:p,quantity:Number(i.quantity),options:o,unit_price:Number(p.price)+customExtra};
       });
       if(!lines.length)return err('ไม่มีสินค้า');
       const stockLines=lines.filter(line=>line.product.deduct_stock===true);
@@ -124,17 +134,23 @@
       if(salesChannel==='online'&&(!onlinePlatform||gpPercent<=0||gpPercent>=100))return err('กรุณาตั้งค่า GP จริงของแพลตฟอร์ม');
       const used={};
       stockLines.forEach(line=>recipeItems.filter(r=>String(r.product_id)===String(line.product.id)).forEach(r=>used[r.stock_key]=(used[r.stock_key]||0)+Number(r.quantity)*line.quantity));
+      const beverageCups=lines.filter(line=>['coffee','tea'].includes(line.product.category)).reduce((sum,line)=>sum+line.quantity,0);
+      if(data.redeemFreeCup&&beverageCups<1)return err('ต้องมีเครื่องดื่มอย่างน้อย 1 แก้วเพื่อใช้สิทธิ์');
+      let memberPoints=0;
       await db.runTransaction(async tx=>{
         for(const [key,amount] of Object.entries(used)){const ref=db.collection('inventory').doc(key),snap=await tx.get(ref);if(!snap.exists||Number(snap.data().quantity||0)<amount)err(`สต็อกไม่พอ: ${snap.data()?.name||key}`);tx.update(ref,{quantity:Number(snap.data().quantity)-amount});}
         tx.set(db.collection('orders').doc(id),{id,subtotal,discount,total,paymentType:data.paymentType,salesChannel,onlinePlatform,gpPercent,onlineNet,memberPhone:data.memberPhone||null,received:data.received||0,changeDue:data.changeDue||0,createdAt});
         lines.forEach(x=>tx.set(db.collection('orderItems').doc(),{order_id:id,product_id:String(x.product.id),name:localized(x.product).name,quantity:x.quantity,unit_price:x.unit_price,options_json:JSON.stringify(x.options),status:'pending',created_at:createdAt,createdAt}));
-        if(data.memberPhone){const ref=db.collection('members').doc(String(data.memberPhone));const snap=await tx.get(ref);if(snap.exists)tx.update(ref,{points:firebase.firestore.FieldValue.increment(Math.floor(total/10))});}
+        if(data.memberPhone){const ref=db.collection('members').doc(String(data.memberPhone));const snap=await tx.get(ref);if(snap.exists){const oldPoints=Number(snap.data().points||0);if(data.redeemFreeCup&&oldPoints<10)err('จำนวนแก้วสะสมไม่เพียงพอสำหรับแลกฟรี');const earned=Math.max(0,beverageCups-(data.redeemFreeCup?1:0));memberPoints=oldPoints-(data.redeemFreeCup?10:0)+earned;tx.update(ref,{points:memberPoints});}}
       });
-      return {id,subtotal,discount,total,paymentType:data.paymentType,salesChannel,onlinePlatform,gpPercent,onlineNet,memberPhone:data.memberPhone,received:data.received||0,changeDue:data.changeDue||0,createdAt,items:lines.map(x=>({name:localized(x.product).name,quantity:x.quantity,unit_price:x.unit_price,options:x.options}))};
+      return {id,subtotal,discount,total,paymentType:data.paymentType,salesChannel,onlinePlatform,gpPercent,onlineNet,memberPhone:data.memberPhone,memberPoints,received:data.received||0,changeDue:data.changeDue||0,createdAt,items:lines.map(x=>({name:localized(x.product).name,quantity:x.quantity,unit_price:x.unit_price,options:x.options}))};
     }
     if(path==='admin/settings' && method==='GET') { const s=await db.collection('settings').doc('features').get();return {features:Object.entries(s.data()||defaults.features).map(([feature_key,enabled])=>({feature_key,enabled:!!enabled}))}; }
     if(path.startsWith('admin/settings/') && method==='PUT') { await db.collection('settings').doc('features').set({[path.split('/')[2]]:!!data.enabled},{merge:true});return {ok:true}; }
     if(path==='admin/products' && method==='GET') return (await docs('products')).map(x=>({id:x.id,...localized(x)}));
+    if(path==='admin/option-groups' && method==='POST') { const id=String(data.id||Date.now());const group={id,name:String(data.name||'').trim(),choices:Array.isArray(data.choices)?data.choices:[]};if(!group.name||!group.choices.length)return err('ข้อมูลตัวเลือกไม่ถูกต้อง');await db.collection('optionGroups').doc(id).set(group);return group; }
+    if(path.match(/^admin\/option-groups\/[^/]+$/) && method==='PUT') { const id=decodeURIComponent(path.split('/')[2]),group={id,name:String(data.name||'').trim(),choices:Array.isArray(data.choices)?data.choices:[]};if(!group.name||!group.choices.length)return err('ข้อมูลตัวเลือกไม่ถูกต้อง');await db.collection('optionGroups').doc(id).set(group);await syncFirebaseOptionGroup(id,group);return group; }
+    if(path.match(/^admin\/option-groups\/[^/]+$/) && method==='DELETE') { const id=decodeURIComponent(path.split('/')[2]);await db.collection('optionGroups').doc(id).delete();await syncFirebaseOptionGroup(id);return {ok:true}; }
     if(path==='admin/products' && method==='POST') { const id=String(Date.now());await db.collection('products').doc(id).set({id,name:data.name,price:Number(data.price),category:data.category||'other',emoji:data.emoji||'☕',image_path:data.imagePath||null,image_data:data.imageData||null,custom_options:Array.isArray(data.customOptions)?data.customOptions:[],deduct_stock:data.deductStock!==false,active:true,target_margin:.65});return {id}; }
     if(path.match(/^admin\/products\/[^/]+$/) && method==='PUT') { const id=path.split('/')[2];await db.collection('products').doc(id).set({name:data.name,price:Number(data.price),category:data.category||'other',emoji:data.emoji||'☕',image_path:data.imagePath||null,image_data:data.imageData||null,custom_options:Array.isArray(data.customOptions)?data.customOptions:[],deduct_stock:data.deductStock!==false,active:!!data.active},{merge:true});return {ok:true}; }
     if(path.match(/^admin\/products\/[^/]+$/) && method==='DELETE') { await db.collection('products').doc(path.split('/')[2]).delete();return {ok:true}; }

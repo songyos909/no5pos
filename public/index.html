@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260729-7">
+  <link rel="stylesheet" href="./styles.css?v=20260729-8">
 </head>
 <body>
   <header class="topbar">
@@ -96,6 +96,7 @@
           <input id="member-phone" type="tel" placeholder="ระบุเบอร์โทร เช่น 0951234567">
           <button type="button" id="register-member-btn" style="display:none">สมัครด่วน</button>
         </div>
+        <input id="quick-member-name" placeholder="กรอกชื่อสมาชิกใหม่" style="display:none;margin-top:8px;width:100%;">
         <div id="member-redeem-row" style="display:none; margin-top:10px; background:#faf8f5; border:1px solid #f1e7de; padding:8px 12px; border-radius:8px; align-items:center; gap:8px;">
           <input type="checkbox" id="member-use-free-cup" style="width:auto; margin:0; cursor:pointer;">
           <label for="member-use-free-cup" style="margin:0; font-size:12.5px; font-weight:600; color:#8c5d43; cursor:pointer;">
@@ -198,9 +199,12 @@
           <!-- Tab 2: Products & Categories -->
           <div id="tab-products" class="admin-tab-panel">
             <section class="settings-section">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px;">
                 <h3 style="margin:0;">รายการเมนูสินค้าในร้าน</h3>
-                <button type="button" class="primary-btn" id="btn-trigger-add-product" style="padding:6px 12px; font-size:12.5px;">+ เพิ่มสินค้าใหม่</button>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+                  <button type="button" class="secondary-btn" id="btn-open-option-library" style="padding:6px 12px; font-size:12.5px;">🧩 สร้างตัวเลือกเพิ่มเติม</button>
+                  <button type="button" class="primary-btn" id="btn-trigger-add-product" style="padding:6px 12px; font-size:12.5px;">+ เพิ่มสินค้าใหม่</button>
+                </div>
               </div>
               <div id="admin-products" class="admin-products-list" style="max-height:280px; overflow-y:auto; border:1px solid #f1e7de; border-radius:10px; padding:10px;"></div>
             </section>
@@ -369,10 +373,10 @@
         <section class="custom-option-editor">
           <div class="custom-option-heading">
             <div>
-              <h4>🧩 Customize ตัวเลือกเฉพาะเมนู</h4>
-              <p class="hint">สร้างกลุ่ม เช่น ขนาด ซอส ท็อปปิ้ง หรือระดับความสุก พร้อมกำหนดราคาเพิ่มได้</p>
+              <h4>🧩 ตัวเลือกเพิ่มเติมของเมนู</h4>
+              <p class="hint">เลือกจากคลังตัวเลือก เช่น ประเภท ขนาด ซอส หรือท็อปปิ้ง หากไม่เลือก ลูกค้าจะเพิ่มสินค้าเข้าตะกร้าได้ทันที</p>
             </div>
-            <button type="button" id="btn-add-custom-option-group" class="secondary-btn">＋ เพิ่มกลุ่มตัวเลือก</button>
+            <button type="button" id="btn-manage-options-from-product" class="secondary-btn">จัดการคลังตัวเลือก</button>
           </div>
           <div id="custom-option-groups-editor"></div>
         </section>
@@ -639,7 +643,32 @@
   </dialog>
 
   <dialog id="modifier-dialog" class="touch-dialog modifier-dialog">
-    <form method="dialog"><header><div><p class="eyebrow">CUSTOMIZE DRINK</p><h2 id="modifier-title">เลือกตัวเลือก</h2></div><button class="close" value="cancel">×</button></header><div id="modifier-options" class="modifier-options"></div><footer class="touch-dialog-footer"><span id="modifier-price"></span><button type="button" class="primary" id="modifier-confirm-btn">เพิ่มลงตะกร้า</button></footer></form>
+    <form method="dialog"><header><div><p class="eyebrow">ตัวเลือกเพิ่มเติม</p><h2 id="modifier-title">เลือกตัวเลือก</h2></div><button class="close" value="cancel">×</button></header><div id="modifier-options" class="modifier-options"></div><footer class="touch-dialog-footer"><span id="modifier-price"></span><button type="button" class="primary" id="modifier-confirm-btn">เพิ่มลงตะกร้า</button></footer></form>
+  </dialog>
+
+  <dialog id="option-library-dialog" class="touch-dialog option-library-dialog">
+    <form method="dialog">
+      <header>
+        <div><p class="eyebrow">OPTION LIBRARY</p><h2>สร้างตัวเลือกเพิ่มเติม</h2></div>
+        <button class="close" value="cancel" aria-label="ปิด">×</button>
+      </header>
+      <div class="option-library-layout">
+        <section>
+          <div class="custom-option-heading"><h3>คลังตัวเลือก</h3><button type="button" id="btn-new-option-group" class="secondary-btn">＋ สร้างใหม่</button></div>
+          <div id="option-library-list" class="option-library-list"></div>
+        </section>
+        <section class="option-library-editor">
+          <h3 id="option-library-editor-title">สร้างกลุ่มตัวเลือก</h3>
+          <label>ชื่อกลุ่ม<input id="option-group-name" placeholder="เช่น ประเภท, ขนาด, ซอส"></label>
+          <div id="option-group-choice-editor" class="custom-choice-list"></div>
+          <button type="button" id="btn-add-option-choice" class="secondary-btn">＋ เพิ่มตัวเลือก</button>
+          <div class="option-library-actions">
+            <button type="button" id="btn-delete-option-group" class="danger-btn" hidden>ลบกลุ่ม</button>
+            <button type="button" id="btn-save-option-group" class="primary">บันทึกตัวเลือก</button>
+          </div>
+        </section>
+      </div>
+    </form>
   </dialog>
   <dialog id="kds-dialog" class="kds-dialog"><div class="kds-shell"><header><div><p class="eyebrow">KITCHEN DISPLAY SYSTEM</p><h2>คิวชงกาแฟ</h2></div><div style="display:flex;gap:8px;align-items:center;"><button id="kds-clear-completed-btn" type="button" class="secondary-btn">ล้างคิวเสิร์ฟแล้ว</button><button class="close" id="kds-close-btn" type="button">×</button></div></header><div id="kds-grid" class="kds-grid"></div></div></dialog>
   <dialog id="numpad-dialog" class="touch-dialog numpad-dialog"><form method="dialog"><header><h2 id="numpad-title">กรอกข้อมูล</h2><button class="close" value="cancel">×</button></header><output id="numpad-value" class="numpad-value"></output><div id="numpad-keys" class="numpad-keys"></div><footer class="touch-dialog-footer"><button type="button" id="numpad-clear-btn">ล้าง</button><button type="button" class="primary" id="numpad-confirm-btn">ยืนยัน</button></footer></form></dialog>
@@ -647,7 +676,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260729-7"></script>
-  <script src="./app.js?v=20260729-7"></script>
+  <script src="./firebase-client.js?v=20260729-8"></script>
+  <script src="./app.js?v=20260729-8"></script>
 </body>
 </html>
