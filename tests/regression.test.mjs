@@ -213,3 +213,59 @@ test('all-category catalog ranks best sellers by quantity in both backends', asy
   assert.match(css, /\.product \.bestseller-badge/);
   assert.doesNotMatch(css, /\.bestseller-badge \{ position:absolute/);
 });
+
+test('responsive POS has desktop, tablet and mobile cart layouts', async () => {
+  const [html, app, css] = await Promise.all([
+    read('public/index.html'),
+    read('public/app.js'),
+    read('public/styles.css')
+  ]);
+  assert.match(html, /id="mobile-cart-toggle"/);
+  assert.match(html, /id="mobile-cart-close"/);
+  assert.match(html, /id="mobile-cart-summary"/);
+  assert.match(app, /setMobileCartOpen/);
+  assert.match(app, /max-width:800px/);
+  assert.match(app, /mobile-cart-summary/);
+  assert.match(css, /min-width:801px\) and \(max-width:1180px/);
+  assert.match(css, /\.cart\.mobile-open/);
+  assert.match(css, /\.mobile-cart-toggle/);
+  assert.match(css, /100dvh/);
+  assert.match(css, /repeat\(2,minmax\(0,1fr\)\)/);
+});
+
+test('loyalty points can be configured for all, category or individual products', async () => {
+  const [html, app, server, firebase] = await Promise.all([
+    read('public/index.html'),
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  for (const mode of ['all','category','product']) assert.match(html,new RegExp(`name="loyalty-mode" value="${mode}"`));
+  assert.match(html, /id="loyalty-category-list"/);
+  assert.match(html, /id="loyalty-product-list"/);
+  assert.match(html, /id="loyalty-reward-points"/);
+  assert.match(html, /id="loyalty-reward-type"/);
+  assert.match(html, /id="loyalty-reward-category-list"/);
+  assert.match(html, /id="loyalty-reward-product-list"/);
+  assert.match(html, /id="loyalty-earn-store"/);
+  assert.match(html, /id="loyalty-earn-online"/);
+  assert.match(app, /normalizeLoyaltySettings/);
+  assert.match(app, /loyaltyRewardForCart/);
+  assert.match(app, /admin\/loyalty-settings/);
+  assert.match(server, /loyaltyProductEligible/);
+  assert.match(server, /loyaltyRewardProductEligible/);
+  assert.match(server, /loyalty_settings/);
+  assert.match(firebase, /settings'\)\.doc\('loyalty'/);
+  for (const source of [server,firebase]) {
+    assert.match(source, /mode==='category'/);
+    assert.match(source, /mode==='product'/);
+    assert.match(source, /categoryKeys/);
+    assert.match(source, /productIds/);
+    assert.match(source, /rewardPoints/);
+    assert.match(source, /rewardType/);
+    assert.match(source, /rewardMaxPrice/);
+    assert.match(source, /rewardDiscountAmount/);
+    assert.match(source, /earnStore/);
+    assert.match(source, /earnOnline/);
+  }
+});
