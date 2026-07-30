@@ -228,10 +228,13 @@ const normalizeCustomOptions = raw => (Array.isArray(raw) ? raw : []).slice(0,12
   choices:(Array.isArray(group?.choices)?group.choices:[]).slice(0,30).map((choice,choiceIndex) => ({
     id:String(choice?.id||`choice_${choiceIndex+1}`).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40)||`choice_${choiceIndex+1}`,
     label:String(choice?.label||'').trim().slice(0,80),
-    price:Math.max(0,Number(choice?.price)||0)
+    price:Math.max(0,Number(choice?.price)||0),
+    online_price:choice?.online_price == null || choice?.online_price === ''
+      ? null
+      : Math.max(0,Number(choice.online_price)||0)
   })).filter(choice=>choice.label)
 })).filter(group=>group.name&&group.choices.length);
-const selectedCustomOptions = (product, raw={}) => {
+const selectedCustomOptions = (product, raw={}, online=false) => {
   let groups=[];
   try { groups=normalizeCustomOptions(JSON.parse(product.custom_options_json||'[]')); } catch {}
   const custom={},custom_labels=[],custom_details=[]; let extra=0;
@@ -239,10 +242,11 @@ const selectedCustomOptions = (product, raw={}) => {
     const requested=raw?.custom?.[group.id];
     const choice=group.choices.find(item=>String(item.id)===String(requested));
     if(choice) {
+      const price=Math.max(0,Number(online?(choice.online_price??choice.price):choice.price)||0);
       custom[group.id]=choice.id;
       custom_labels.push(`${group.name}: ${choice.label}`);
-      custom_details.push({group:group.name,label:choice.label,price:choice.price});
-      extra+=choice.price;
+      custom_details.push({group:group.name,label:choice.label,price});
+      extra+=price;
     }
   }
   return {custom,custom_labels,custom_details,extra};
@@ -333,7 +337,7 @@ app.post('/api/orders', (req,res) => {
         const product=findProduct.get(Number(row.productId)), qty=Number(row.quantity);
         if(!product || !product.active || !Number.isInteger(qty) || qty<1 || qty>99) throw Error('Invalid order item');
         const raw=row.options||{};
-        const selected=selectedCustomOptions(product,raw);
+        const selected=selectedCustomOptions(product,raw,normalizedSalesChannel==='online');
         const options={custom:selected.custom,custom_labels:selected.custom_labels,custom_details:selected.custom_details};
         const savedPrice=channel?db.prepare('SELECT sale_price FROM channel_prices WHERE product_id=? AND channel_key=?').get(product.id,channel.channel_key):null;
         const unitPrice=Number(savedPrice?.sale_price??product.price)+selected.extra;

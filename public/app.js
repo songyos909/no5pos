@@ -314,7 +314,10 @@ function normalizeCustomOptionGroups(raw) {
       choices: (Array.isArray(group.choices) ? group.choices : []).slice(0, 20).map((choice, choiceIndex) => ({
         id: String(choice.id || `choice_${groupIndex}_${choiceIndex}`),
         label: String(choice.label || '').trim(),
-        price: Math.max(0, Number(choice.price) || 0)
+        price: Math.max(0, Number(choice.price) || 0),
+        online_price: choice.online_price == null || choice.online_price === ''
+          ? null
+          : Math.max(0, Number(choice.online_price) || 0)
       })).filter(choice => choice.label)
     })).filter(group => group.name && group.choices.length);
   } catch { return []; }
@@ -330,9 +333,10 @@ function sanitizeCartOptions(product,raw={}) {
 }
 function modifierExtra(options, product) {
   let extra = 0;
+  const online = document.querySelector('input[name="sale-channel"]:checked')?.value === 'online';
   productOptionGroups(product).forEach(group => {
     const choice = group.choices.find(item => item.id === options?.custom?.[group.id]);
-    extra += Number(choice?.price || 0);
+    extra += Number(online ? (choice?.online_price ?? choice?.price ?? 0) : (choice?.price ?? 0));
   });
   return extra;
 }
@@ -355,7 +359,7 @@ function renderModifierModal() {
   productOptionGroups(modifierProduct).forEach(group => {
     const sec=document.createElement('section');sec.className='modifier-group';const h=document.createElement('h3');h.textContent=group.name;const row=document.createElement('div');row.className='modifier-choice-row';
     const none=document.createElement('button');none.type='button';none.textContent='ไม่เลือก';none.className=modifierOptions.custom[group.id]?'':'selected';none.onclick=()=>{delete modifierOptions.custom[group.id];renderModifierModal();};row.append(none);
-    group.choices.forEach(choice => { const button=document.createElement('button');button.type='button';button.textContent=`${choice.label}${choice.price ? ` +${money(choice.price)}` : ''}`;button.className=modifierOptions.custom[group.id]===choice.id?'selected':'';button.onclick=()=>{modifierOptions.custom[group.id]=choice.id;renderModifierModal();};row.append(button); });
+    group.choices.forEach(choice => { const button=document.createElement('button');button.type='button';const price=modifierExtra({custom:{[group.id]:choice.id}},modifierProduct);button.textContent=`${choice.label}${price ? ` +${money(price)}` : ''}`;button.className=modifierOptions.custom[group.id]===choice.id?'selected':'';button.onclick=()=>{modifierOptions.custom[group.id]=choice.id;renderModifierModal();};row.append(button); });
     sec.append(h,row);root.append(sec);
   });
   $('#modifier-price').textContent=money(saleBasePrice(modifierProduct)+modifierExtra(modifierOptions,modifierProduct));
@@ -1630,7 +1634,7 @@ function renderCustomOptionEditor() {
     const label=document.createElement('label');label.className='product-option-pick';
     const check=document.createElement('input');check.type='checkbox';check.checked=currentCustomOptionGroups.some(item=>item.id===group.id);
     const info=document.createElement('span');const title=document.createElement('strong');title.textContent=group.name;
-    const summary=document.createElement('small');summary.textContent=group.choices.map(choice=>`${choice.label}${choice.price?` (+${money(choice.price)})`:''}`).join(' · ');
+    const summary=document.createElement('small');summary.textContent=group.choices.map(choice=>{const store=Number(choice.price)||0;const online=choice.online_price==null?store:Number(choice.online_price)||0;const prices=online===store?(store?` (+${money(store)})`:''):` (หน้าร้าน +${money(store)} / ออนไลน์ +${money(online)})`;return `${choice.label}${prices}`;}).join(' · ');
     info.append(title,summary);label.append(check,info);
     check.onchange=()=>{
       if(check.checked) currentCustomOptionGroups.push(structuredClone(group));
@@ -1645,7 +1649,7 @@ let optionGroupEditingId=null;
 let optionGroupDraft={id:'',name:'',choices:[]};
 function resetOptionGroupEditor(group=null){
   optionGroupEditingId=group?.id||null;
-  optionGroupDraft=group?structuredClone(group):{id:makeOptionId('group'),name:'',choices:[{id:makeOptionId('choice'),label:'',price:0}]};
+  optionGroupDraft=group?structuredClone(group):{id:makeOptionId('group'),name:'',choices:[{id:makeOptionId('choice'),label:'',price:0,online_price:null}]};
   if($('#option-group-name'))$('#option-group-name').value=optionGroupDraft.name;
   if($('#option-library-editor-title'))$('#option-library-editor-title').textContent=group?'แก้ไขกลุ่มตัวเลือก':'สร้างกลุ่มตัวเลือก';
   if($('#btn-delete-option-group'))$('#btn-delete-option-group').hidden=!group;
@@ -1657,14 +1661,15 @@ function renderOptionGroupChoices(){
     const row=document.createElement('div');row.className='custom-choice-row';
     row.dataset.sortId=String(choice.id);
     const name=document.createElement('input');name.placeholder='ชื่อตัวเลือก เช่น เย็น';name.value=choice.label;name.oninput=()=>{choice.label=name.value;};
-    const price=document.createElement('input');price.type='number';price.min='0';price.step='.5';price.placeholder='ราคาเพิ่ม';price.value=choice.price;price.oninput=()=>{choice.price=Math.max(0,Number(price.value)||0);};
+    const price=document.createElement('input');price.type='number';price.min='0';price.step='.5';price.placeholder='ราคาหน้าร้าน';price.value=choice.price;price.oninput=()=>{choice.price=Math.max(0,Number(price.value)||0);};
+    const onlinePrice=document.createElement('input');onlinePrice.type='number';onlinePrice.min='0';onlinePrice.step='.5';onlinePrice.placeholder='ราคาออนไลน์';onlinePrice.value=choice.online_price??'';onlinePrice.title='เว้นว่างเพื่อใช้ราคาหน้าร้าน';onlinePrice.oninput=()=>{choice.online_price=onlinePrice.value===''?null:Math.max(0,Number(onlinePrice.value)||0);};
     const remove=document.createElement('button');remove.type='button';remove.className='secondary-btn';remove.textContent='×';remove.onclick=()=>{optionGroupDraft.choices=optionGroupDraft.choices.filter(item=>item!==choice);renderOptionGroupChoices();};
     const order=document.createElement('span');order.className='choice-order-actions';
     const handle=document.createElement('button');handle.type='button';handle.className='press-drag-handle';handle.dataset.sortHandle='';handle.textContent='⠿';handle.title='แตะค้างแล้วลากเพื่อจัดลำดับ';handle.setAttribute('aria-label','ลากจัดลำดับตัวเลือก');
     const up=document.createElement('button');up.type='button';up.textContent='↑';up.title='เลื่อนตัวเลือกขึ้น';up.disabled=index===0;up.onclick=()=>{optionGroupDraft.choices=moveArrayItem(optionGroupDraft.choices,index,-1);renderOptionGroupChoices();};
     const down=document.createElement('button');down.type='button';down.textContent='↓';down.title='เลื่อนตัวเลือกลง';down.disabled=index===optionGroupDraft.choices.length-1;down.onclick=()=>{optionGroupDraft.choices=moveArrayItem(optionGroupDraft.choices,index,1);renderOptionGroupChoices();};
     order.append(handle,up,down);
-    row.append(name,price,order,remove);root.append(row);
+    row.append(name,price,onlinePrice,order,remove);root.append(row);
   });
   bindPressDragSort(root,'.custom-choice-row',ids=>{
     const positions=new Map(ids.map((id,index)=>[id,index]));
@@ -1685,7 +1690,7 @@ function openOptionLibrary(){
 $('#btn-open-option-library') && ($('#btn-open-option-library').onclick=openOptionLibrary);
 $('#btn-manage-options-from-product') && ($('#btn-manage-options-from-product').onclick=openOptionLibrary);
 $('#btn-new-option-group') && ($('#btn-new-option-group').onclick=()=>resetOptionGroupEditor());
-$('#btn-add-option-choice') && ($('#btn-add-option-choice').onclick=()=>{optionGroupDraft.choices.push({id:makeOptionId('choice'),label:'',price:0});renderOptionGroupChoices();});
+$('#btn-add-option-choice') && ($('#btn-add-option-choice').onclick=()=>{optionGroupDraft.choices.push({id:makeOptionId('choice'),label:'',price:0,online_price:null});renderOptionGroupChoices();});
 $('#btn-save-option-group') && ($('#btn-save-option-group').onclick=async()=>{
   optionGroupDraft.name=($('#option-group-name')?.value||'').trim();
   const normalized=normalizeCustomOptionGroups([optionGroupDraft])[0];

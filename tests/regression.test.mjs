@@ -156,3 +156,18 @@ test('menu, option group and option choice ordering persist in both backends', a
   assert.match(server, /ORDER BY sort_order,category,name/);
   assert.match(firebase, /sortBySavedOrder/);
 });
+
+test('modifier choices support separate online prices with store-price fallback', async () => {
+  const [html, app, server, firebase] = await Promise.all([
+    read('public/index.html'),
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  for (const source of [app, server, firebase]) assert.match(source, /online_price/);
+  assert.match(html, /เว้นราคาออนไลน์ว่าง/);
+  assert.match(app, /choice\?\.online_price \?\? choice\?\.price/);
+  assert.match(app, /placeholder='ราคาออนไลน์'/);
+  assert.match(server, /selectedCustomOptions\(product,raw,normalizedSalesChannel==='online'\)/);
+  assert.match(firebase, /salesChannel==='online'\?\(selected\.online_price\?\?selected\.price\)/);
+});

@@ -189,7 +189,7 @@
         groups.forEach(group=>{
           const choices=Array.isArray(group.choices)?group.choices:[];
           const selected=choices.find(choice=>String(choice.id)===String(i.options?.custom?.[group.id]));
-          if(selected){const price=Math.max(0,Number(selected.price)||0);custom[group.id]=selected.id;custom_labels.push(`${group.name}: ${selected.label}`);custom_details.push({group:String(group.name||''),label:String(selected.label||''),price});customExtra+=price;}
+          if(selected){const price=Math.max(0,Number(salesChannel==='online'?(selected.online_price??selected.price):selected.price)||0);custom[group.id]=selected.id;custom_labels.push(`${group.name}: ${selected.label}`);custom_details.push({group:String(group.name||''),label:String(selected.label||''),price});customExtra+=price;}
         });
         const o={custom,custom_labels,custom_details};
         const saved=channelPrices.find(row=>String(row.product_id)===String(p.id)&&row.channel_key===onlinePlatform);

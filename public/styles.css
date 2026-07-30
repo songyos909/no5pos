@@ -1444,14 +1444,16 @@ dialog:not(#kds-dialog) #firebase-login-btn {
 .custom-option-card-header { display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:8px; align-items:center; }
 .custom-option-card-header input { width:100%; }
 .custom-choice-list { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
-.custom-choice-row { display:grid; grid-template-columns:minmax(140px,1fr) 100px 110px 40px; gap:6px; align-items:center; }
+.custom-choice-row { display:grid; grid-template-columns:minmax(140px,1fr) 100px 100px 110px 40px; gap:6px; align-items:center; }
 .custom-choice-row input { width:100%; min-height:38px !important; }
 .custom-choice-row button,.custom-option-card-header button { min-height:38px !important; }
 .custom-choice-add { margin-top:8px; width:100%; min-height:38px !important; }
 @media (max-width:640px) {
   .custom-option-heading { flex-direction:column; }
   .custom-option-heading button { width:100%; }
-  .custom-choice-row { grid-template-columns:minmax(110px,1fr) 76px 104px 36px; }
+  .custom-choice-row { grid-template-columns:minmax(120px,1fr) 86px 86px; }
+  .custom-choice-row .choice-order-actions { grid-column:1 / 3; }
+  .custom-choice-row > .secondary-btn { grid-column:3; grid-row:2; }
 }
 @media (max-width:640px) {
   dialog:not(#kds-dialog) header { padding-right:54px; }
