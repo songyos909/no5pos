@@ -16,6 +16,7 @@ let state = {
   channelPrices: [],
   optionGroups: [],
   bestSellers: [],
+  loyaltySettings: { mode:'category', categoryKeys:['coffee','tea'], productIds:[] },
   recipesData: [],
   selectedCategory: 'all',
   selectedStockCategory: 'all', selectedMaterialType: 'all'
@@ -93,6 +94,7 @@ async function load() {
     state.channelPrices = boot.channelPrices || [];
     state.optionGroups = normalizeCustomOptionGroups(boot.optionGroups || []);
     state.bestSellers = Array.isArray(boot.bestSellers) ? boot.bestSellers : [];
+    state.loyaltySettings = normalizeLoyaltySettings(boot.loyaltySettings);
     state.cart = savedCart.flatMap(item => {
       const product=state.products.find(entry=>String(entry.id)===String(item.product?.id));
       if(!product)return [];
@@ -257,7 +259,7 @@ function openModule(key) {
     const tab = key === 'products' || key === 'recipes' ? 'tab-products' : key === 'pricing' ? 'tab-pricing' : key === 'members' ? 'tab-members' : 'tab-inventory';
     const title = key === 'products' || key === 'recipes' ? 'จัดการเมนูและสูตรชง' : key === 'pricing' ? 'ราคาออนไลน์และต้นทุน' : key === 'members' ? 'ระบบสมาชิก' : 'สต็อกวัตถุดิบ';
     openAdminWindow(tab, title);
-    if (key === 'members') renderAdminMembers();
+    if (key === 'members') { renderLoyaltySettings(); renderAdminMembers(); }
   }
 }
 
@@ -332,6 +334,13 @@ function sanitizeCartOptions(product,raw={}) {
     if(choice){custom[group.id]=choice.id;custom_labels.push(`${group.name}: ${choice.label}`);}
   });
   return {custom,custom_labels};
+}
+function normalizeLoyaltySettings(raw={}) {
+  return {
+    mode:['all','category','product'].includes(raw?.mode)?raw.mode:'category',
+    categoryKeys:[...new Set((Array.isArray(raw?.categoryKeys)?raw.categoryKeys:['coffee','tea']).map(String))],
+    productIds:[...new Set((Array.isArray(raw?.productIds)?raw.productIds:[]).map(String))]
+  };
 }
 function modifierExtra(options, product) {
   let extra = 0;
@@ -609,7 +618,21 @@ function renderCart() {
     }
   }
   const countEl = $('#count');
-  if (countEl) countEl.textContent = state.cart.reduce((s, x) => s + x.qty, 0);
+  const itemCount = state.cart.reduce((s, x) => s + x.qty, 0);
+  if (countEl) countEl.textContent = itemCount;
+  const mobileSummary = $('#mobile-cart-summary');
+  if (mobileSummary) mobileSummary.textContent = `${itemCount} รายการ · ${money(total)}`;
+}
+
+function setMobileCartOpen(open) {
+  const cart=$('.cart');
+  const toggle=$('#mobile-cart-toggle');
+  if(!cart||!toggle)return;
+  const active=Boolean(open)&&window.matchMedia('(max-width:800px)').matches;
+  cart.classList.toggle('mobile-open',active);
+  toggle.setAttribute('aria-expanded',String(active));
+  document.body.classList.toggle('mobile-cart-open',active);
+  if(active)cart.scrollTop=0;
 }
 
 // ── Member lookup ─────────────────────────────────────────────
@@ -638,7 +661,7 @@ async function searchMember() {
   try {
     const member = await api(`/api/members/${phone}`);
     if(sequence!==memberSearchSequence)return;
-    if (info) { info.textContent = `✓ ${member.name} (สะสม ${member.points} แก้ว)`; info.className = 'member-info success'; }
+    if (info) { info.textContent = `✓ ${member.name} (สะสม ${member.points} แต้ม)`; info.className = 'member-info success'; }
     if (regBtn) regBtn.style.display = 'none';
     if (nameInput) nameInput.style.display = 'none';
     currentMember = member;
@@ -747,6 +770,7 @@ async function finalizeCheckout() {
     if (useFreeCupEl) useFreeCupEl.checked = false;
 
     await load();
+    setMobileCartOpen(false);
     showReceipt(order);
   } catch (e) {
     showNotice(e.message, 'error');
@@ -817,7 +841,7 @@ function showReceipt(order) {
     if (memberPhone) {
       mRow.style.display = 'flex';
       const ptEl = mRow.querySelector('span:last-child') || $('#receipt-member-points');
-      if (ptEl) ptEl.textContent = order.memberPoints==null ? `สมาชิก ${memberPhone}` : `สะสม ${order.memberPoints} แก้ว (${memberPhone})`;
+      if (ptEl) ptEl.textContent = order.memberPoints==null ? `สมาชิก ${memberPhone}` : `${order.pointsEarned==null?'':`+${order.pointsEarned} แต้ม · `}สะสมรวม ${order.memberPoints} แต้ม (${memberPhone})`;
     } else {
       mRow.style.display = 'none';
     }
@@ -1433,6 +1457,7 @@ async function adminLoad() {
 
   // ⑤ Categories table
   renderCategoriesTable();
+  renderLoyaltySettings();
 
   // ⑥ GP channels
   const channelsEl = $('#channels');
@@ -2029,6 +2054,9 @@ $('#online-channel') && ($('#online-channel').onchange = updateOnlineChannelUI);
 
 const checkoutBtn = $('#checkout');
 if (checkoutBtn) checkoutBtn.onclick = checkout;
+$('#mobile-cart-toggle') && ($('#mobile-cart-toggle').onclick=()=>setMobileCartOpen(true));
+$('#mobile-cart-close') && ($('#mobile-cart-close').onclick=()=>setMobileCartOpen(false));
+window.matchMedia('(min-width:801px)').addEventListener?.('change',event=>{if(event.matches)setMobileCartOpen(false);});
 
 $('#edit-prod-price') && ($('#edit-prod-price').oninput = renderEditRecipeItems);
 $('#edit-prod-margin') && ($('#edit-prod-margin').oninput = renderEditRecipeItems);
@@ -2064,6 +2092,54 @@ function openCostInventory(item = null) {
   const save=$('#cost-inv-save'); if(save) save.textContent=item?'บันทึกการแก้ไข':'บันทึกวัตถุดิบ';
   refreshUnitCostPreview(); $('#cost-inventory-dialog')?.showModal();
 }
+let loyaltySettingsDraft=null;
+function updateLoyaltySummary() {
+  const out=$('#loyalty-settings-summary');if(!out||!loyaltySettingsDraft)return;
+  if(loyaltySettingsDraft.mode==='all')out.textContent='สมาชิกได้รับแต้มจากทุกเมนู';
+  else if(loyaltySettingsDraft.mode==='category')out.textContent=`เลือกแล้ว ${loyaltySettingsDraft.categoryKeys.length} หมวดหมู่`;
+  else out.textContent=`เลือกแล้ว ${loyaltySettingsDraft.productIds.length} เมนู`;
+}
+function renderLoyaltyProductChoices() {
+  const root=$('#loyalty-product-list');if(!root||!loyaltySettingsDraft)return;root.replaceChildren();
+  const query=($('#loyalty-product-search')?.value||'').trim().toLowerCase();
+  state.products.filter(product=>!query||product.name.toLowerCase().includes(query)).forEach(product=>{
+    const label=document.createElement('label');
+    const input=document.createElement('input');input.type='checkbox';input.value=String(product.id);input.checked=loyaltySettingsDraft.productIds.includes(String(product.id));
+    const text=document.createElement('span');text.textContent=`${product.emoji||'🍽️'} ${product.name}`;
+    input.onchange=()=>{loyaltySettingsDraft.productIds=input.checked?[...new Set([...loyaltySettingsDraft.productIds,String(product.id)])]:loyaltySettingsDraft.productIds.filter(id=>id!==String(product.id));updateLoyaltySummary();};
+    label.append(input,text);root.append(label);
+  });
+}
+function renderLoyaltySettingsPickers() {
+  const mode=loyaltySettingsDraft?.mode||'all';
+  if($('#loyalty-category-picker'))$('#loyalty-category-picker').hidden=mode!=='category';
+  if($('#loyalty-product-picker'))$('#loyalty-product-picker').hidden=mode!=='product';
+  updateLoyaltySummary();
+}
+function renderLoyaltySettings() {
+  const card=$('.loyalty-settings-card');if(!card)return;
+  loyaltySettingsDraft=normalizeLoyaltySettings(state.loyaltySettings);
+  document.querySelectorAll('input[name="loyalty-mode"]').forEach(input=>{
+    input.checked=input.value===loyaltySettingsDraft.mode;
+    input.onchange=()=>{if(input.checked){loyaltySettingsDraft.mode=input.value;renderLoyaltySettingsPickers();}};
+  });
+  const categoryRoot=$('#loyalty-category-list');
+  if(categoryRoot){categoryRoot.replaceChildren();state.categories.forEach(category=>{const label=document.createElement('label');const input=document.createElement('input');input.type='checkbox';input.value=String(category.category_key);input.checked=loyaltySettingsDraft.categoryKeys.includes(String(category.category_key));const text=document.createElement('span');text.textContent=category.name;input.onchange=()=>{loyaltySettingsDraft.categoryKeys=input.checked?[...new Set([...loyaltySettingsDraft.categoryKeys,String(category.category_key)])]:loyaltySettingsDraft.categoryKeys.filter(key=>key!==String(category.category_key));updateLoyaltySummary();};label.append(input,text);categoryRoot.append(label);});}
+  const search=$('#loyalty-product-search');if(search){search.value='';search.oninput=renderLoyaltyProductChoices;}
+  renderLoyaltyProductChoices();
+  renderLoyaltySettingsPickers();
+}
+$('#btn-save-loyalty-settings') && ($('#btn-save-loyalty-settings').onclick=async()=>{
+  if(!loyaltySettingsDraft)return;
+  if(loyaltySettingsDraft.mode==='category'&&!loyaltySettingsDraft.categoryKeys.length)return showNotice('เลือกหมวดหมู่ที่ให้แต้มอย่างน้อย 1 หมวด','error');
+  if(loyaltySettingsDraft.mode==='product'&&!loyaltySettingsDraft.productIds.length)return showNotice('เลือกเมนูที่ให้แต้มอย่างน้อย 1 รายการ','error');
+  try{
+    const result=await api('/api/admin/loyalty-settings',{method:'PUT',body:JSON.stringify(loyaltySettingsDraft)});
+    state.loyaltySettings=normalizeLoyaltySettings(result.loyaltySettings||loyaltySettingsDraft);
+    renderLoyaltySettings();showNotice('บันทึกเงื่อนไขสะสมแต้มแล้ว');
+  }catch(error){showNotice(error.message,'error');}
+});
+
 let memberEditingPhone = null;
 async function renderAdminMembers() {
   const container = $('#admin-members-list');
@@ -2088,7 +2164,7 @@ async function renderAdminMembers() {
       
       const phoneSpan = document.createElement('small');
       phoneSpan.style.cssText = 'color:#888; font-size:11px;';
-      phoneSpan.textContent = `เบอร์โทร: ${m.phone} · สะสม ${m.points} แก้ว`;
+      phoneSpan.textContent = `เบอร์โทร: ${m.phone} · สะสม ${m.points} แต้ม`;
       
       info.append(name, phoneSpan);
       

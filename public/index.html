@@ -8,7 +8,53 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260730-20">
+  <link rel="stylesheet" href="./styles.css?v=20260730-22">
+  <style id="responsive-ui-v22">
+    .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
+    #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+    .loyalty-settings-card{border-color:#ead7b5!important;background:linear-gradient(135deg,#fffaf0,#fffdf9)!important}
+    .loyalty-settings-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.loyalty-settings-heading h3{margin:0 0 4px}
+    .loyalty-mode-options{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
+    .loyalty-mode-options label,.loyalty-check-grid label{display:flex;align-items:center;gap:8px;min-height:42px;padding:9px 11px;border:1px solid #e8d9ca;border-radius:10px;background:#fff;cursor:pointer}
+    .loyalty-mode-options label:has(input:checked),.loyalty-check-grid label:has(input:checked){border-color:var(--accent);background:#fff3e8;color:var(--primary)}
+    .loyalty-mode-options input,.loyalty-check-grid input{width:auto;margin:0;accent-color:var(--primary)}
+    .loyalty-picker{padding:12px;border:1px solid #eadfd5;border-radius:12px;background:#fffaf6}.loyalty-picker[hidden]{display:none}
+    .loyalty-check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:7px;margin-top:9px;max-height:260px;overflow:auto}
+    .loyalty-search{display:grid;grid-template-columns:auto minmax(160px,1fr);align-items:center;gap:10px;margin-top:10px}.loyalty-search input{min-height:40px}
+    .loyalty-settings-summary{display:block;margin-top:10px;color:#8a5a2b;font-weight:700;font-size:12px}
+    @media (min-width:801px) and (max-width:1180px){
+      .workspace{grid-template-columns:minmax(0,1fr) 340px!important;gap:16px;padding:18px 16px 28px}
+      .catalog,.cart{padding:18px}.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+      .product{padding:13px;min-height:138px}.product .product-image{width:calc(100% + 26px);margin:-13px -13px 10px}
+      .category-tab-btn{min-height:42px;padding:8px 14px;font-size:12px}.catalog-add-btn{padding:8px 11px;font-size:12px}
+    }
+    @media (max-width:800px){
+      body{padding-bottom:82px}body.mobile-cart-open{overflow:hidden}.workspace{display:block!important;padding:0 10px;margin-top:10px}
+      .catalog{padding:14px;border-radius:18px}.section-heading{align-items:center;margin-bottom:12px}.section-heading h2{font-size:19px}
+      .catalog-heading-actions{gap:6px}.chip{padding:5px 8px;font-size:10px}.catalog-add-btn{padding:8px 10px;font-size:11px}
+      .toolbar{margin-bottom:8px}.search{padding:0 11px}.search input{padding:10px 0;font-size:13px}
+      .category-toolbar{gap:7px;margin-bottom:8px}.category-toolbar .category-tabs{padding:3px 0 5px}
+      .category-tab-btn{min-height:40px;padding:8px 13px;font-size:12px}
+      #products.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.product{min-height:132px;padding:11px;border-radius:14px}
+      .product .product-image{width:calc(100% + 22px);height:96px;margin:-11px -11px 9px;border-radius:14px 14px 0 0}
+      .product b{padding-right:0;font-size:12px}.product small{font-size:11px}.product .bestseller-badge{font-size:9px;margin-bottom:5px;padding:2px 6px}
+      .catalog-list-heading{margin-top:4px;padding:8px 10px;font-size:12px}
+      .cart{display:block;position:fixed!important;z-index:30;inset:auto 10px calc(72px + env(safe-area-inset-bottom)) 10px;max-height:calc(100dvh - 164px);margin:0;padding:16px;overflow:auto;border-radius:22px;box-shadow:0 22px 60px rgba(45,27,19,.32);transform:translateY(calc(100% + 100px));opacity:0;pointer-events:none;transition:transform .24s ease,opacity .2s ease}
+      .cart.mobile-open{transform:translateY(0);opacity:1;pointer-events:auto}
+      .cart-header{position:sticky;top:-16px;z-index:3;margin:-16px -16px 12px;padding:16px;background:rgba(255,250,246,.97);border-bottom:1px solid var(--panel-border);backdrop-filter:blur(12px)}
+      .mobile-cart-close{display:grid;place-items:center;width:40px;min-width:40px;height:40px;padding:0;border:0;border-radius:12px;background:#f1e6de;color:var(--primary);font-size:25px}
+      .mobile-cart-toggle{display:flex;position:fixed;z-index:25;left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));align-items:center;justify-content:space-between;min-height:58px;padding:10px 16px;border:0;border-radius:17px;background:var(--primary);color:#fff;box-shadow:0 12px 32px rgba(45,27,19,.3);font:700 13px Prompt,sans-serif}
+      .mobile-cart-toggle strong{font-size:13px}.mobile-cart-toggle[aria-expanded=true]{opacity:0;pointer-events:none}
+      .cart-lines{min-height:70px;max-height:none}.checkout-controls{grid-template-columns:1fr 1fr}.member-section{padding:10px}
+      .dashboard{grid-template-columns:1fr 1fr;padding:0 10px}
+    }
+    @media (max-width:430px){
+      .brand small,.section-heading .eyebrow{display:none}.category-toolbar{align-items:stretch;flex-direction:column}
+      .category-toolbar .catalog-add-btn{width:100%}
+      .loyalty-settings-heading{flex-direction:column}.loyalty-settings-heading button{width:100%}
+      .loyalty-mode-options{grid-template-columns:1fr}.loyalty-check-grid{grid-template-columns:1fr}.loyalty-search{grid-template-columns:1fr}
+    }
+  </style>
 </head>
 <body>
   <header class="topbar">
@@ -59,13 +105,16 @@
     </section>
 
     <!-- Cart (Middle Column) -->
-    <aside class="cart panel">
+    <aside class="cart panel" id="cart-panel">
       <div class="cart-header">
         <div>
           <p class="eyebrow">CURRENT ORDER</p>
           <h2>ตะกร้าสินค้า</h2>
         </div>
-        <span id="count" class="cart-badge">0</span>
+        <div class="cart-header-actions">
+          <span id="count" class="cart-badge">0</span>
+          <button type="button" id="mobile-cart-close" class="mobile-cart-close" aria-label="ปิดตะกร้า">×</button>
+        </div>
       </div>
       <div id="cart" class="cart-lines">
         <div class="empty-state">เลือกรายการจากเมนูด้านซ้าย</div>
@@ -100,7 +149,7 @@
         <div id="member-redeem-row" style="display:none; margin-top:10px; background:#faf8f5; border:1px solid #f1e7de; padding:8px 12px; border-radius:8px; align-items:center; gap:8px;">
           <input type="checkbox" id="member-use-free-cup" style="width:auto; margin:0; cursor:pointer;">
           <label for="member-use-free-cup" style="margin:0; font-size:12.5px; font-weight:600; color:#8c5d43; cursor:pointer;">
-            🎁 ใช้สิทธิ์แลกฟรี 1 แก้ว (ใช้ 10 แก้วสะสม)
+            🎁 ใช้สิทธิ์แลกฟรี 1 แก้ว (ใช้ 10 แต้ม)
           </label>
         </div>
       </div>
@@ -126,6 +175,11 @@
       </div>
     </aside>
   </main>
+
+  <button type="button" id="mobile-cart-toggle" class="mobile-cart-toggle" aria-controls="cart-panel" aria-expanded="false">
+    <span>🛒 เปิดตะกร้า</span>
+    <strong id="mobile-cart-summary">0 รายการ · ฿0.00</strong>
+  </button>
 
   <section class="dashboard">
     <article>
@@ -260,6 +314,30 @@
 
           <!-- Tab 5: Member Management -->
           <div id="tab-members" class="admin-tab-panel">
+            <section class="settings-section loyalty-settings-card">
+              <div class="loyalty-settings-heading">
+                <div>
+                  <h3>⭐ กำหนดเมนูที่ได้รับแต้ม</h3>
+                  <p class="hint">สมาชิกได้รับ 1 แต้มต่อสินค้า 1 ชิ้น เฉพาะรายการที่ร้านกำหนด</p>
+                </div>
+                <button type="button" class="primary-btn" id="btn-save-loyalty-settings">บันทึกการสะสมแต้ม</button>
+              </div>
+              <div class="loyalty-mode-options">
+                <label><input type="radio" name="loyalty-mode" value="all" checked> ทุกเมนู</label>
+                <label><input type="radio" name="loyalty-mode" value="category"> เลือกตามหมวดหมู่</label>
+                <label><input type="radio" name="loyalty-mode" value="product"> เลือกเป็นรายเมนู</label>
+              </div>
+              <div id="loyalty-category-picker" class="loyalty-picker" hidden>
+                <strong>หมวดหมู่ที่ได้รับแต้ม</strong>
+                <div id="loyalty-category-list" class="loyalty-check-grid"></div>
+              </div>
+              <div id="loyalty-product-picker" class="loyalty-picker" hidden>
+                <strong>เมนูที่ได้รับแต้ม</strong>
+                <label class="loyalty-search">ค้นหาเมนู<input id="loyalty-product-search" placeholder="พิมพ์ชื่อเมนู"></label>
+                <div id="loyalty-product-list" class="loyalty-check-grid loyalty-product-grid"></div>
+              </div>
+              <output id="loyalty-settings-summary" class="loyalty-settings-summary"></output>
+            </section>
             <section class="settings-section">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                 <h3 style="margin:0;">รายชื่อสมาชิกในระบบ</h3>
@@ -659,7 +737,7 @@
           <input id="edit-member-name" placeholder="ชื่อ-นามสกุล" style="width:100%; min-height:40px; padding:8px; border:1px solid #dfcec0; border-radius:8px;">
         </div>
         <div style="margin-bottom: 16px;">
-          <label style="font-size:11.5px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">จำนวนแก้วสะสม (แต้ม)</label>
+          <label style="font-size:11.5px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">คะแนนสะสม (แต้ม)</label>
           <input id="edit-member-points" type="number" min="0" value="0" style="width:100%; min-height:40px; padding:8px; border:1px solid #dfcec0; border-radius:8px;">
         </div>
         
@@ -706,7 +784,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260730-20"></script>
-  <script src="./app.js?v=20260730-20"></script>
+  <script src="./firebase-client.js?v=20260730-22"></script>
+  <script src="./app.js?v=20260730-22"></script>
 </body>
 </html>
