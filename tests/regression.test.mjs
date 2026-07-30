@@ -46,6 +46,41 @@ test('custom menu options start unselected in UI and both backends', async () =>
   }
 });
 
+test('receipts preserve modifier detail and paid modifier prices', async () => {
+  const [app, server, firebase] = await Promise.all([
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  assert.match(app, /receiptModifierDetails/);
+  assert.match(app, /custom_details/);
+  assert.match(app, /detail\.price>0/);
+  assert.match(app, /unitPrice\*quantity/);
+  for (const source of [server, firebase]) {
+    assert.match(source, /custom_details/);
+    assert.match(source, /price/);
+  }
+});
+
+test('advanced reports expose common filters and ranking dashboards', async () => {
+  const [html, app, server, firebase] = await Promise.all([
+    read('public/index.html'),
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  for (const id of ['report-date-from','report-date-to','report-category','report-product','report-sales-channel','rep-top-revenue-list','rep-top-addons-list']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  for (const source of [server, firebase]) {
+    for (const field of ['dateFrom','dateTo','category','productId','salesChannel','topByQuantity','topByRevenue','topAddons']) {
+      assert.match(source, new RegExp(field));
+    }
+  }
+  assert.match(firebase, /new URL\(url,window\.location\.origin\)/);
+  assert.match(app, /reportQueryString/);
+});
+
 test('Firebase migration includes options, online prices and boolean conversion', async () => {
   const html = await read('public/firebase-import.html');
   assert.match(html, /optionGroups/);

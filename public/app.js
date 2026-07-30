@@ -721,6 +721,16 @@ async function finalizeCheckout() {
 }
 
 // ── E-Receipt display ─────────────────────────────────────────
+function receiptModifierDetails(item) {
+  let options=item?.options;
+  if(!options&&item?.options_json)try{options=typeof item.options_json==='string'?JSON.parse(item.options_json):item.options_json;}catch{}
+  if(Array.isArray(options?.custom_details))return options.custom_details.map(detail=>({
+    text:`${detail.group}: ${detail.label}`,
+    price:Math.max(0,Number(detail.price)||0)
+  }));
+  return (Array.isArray(options?.custom_labels)?options.custom_labels:[]).map(text=>({text:String(text),price:0}));
+}
+
 function showReceipt(order) {
   const dlg = $('#receipt-dialog');
   if (!dlg) return;
@@ -735,12 +745,22 @@ function showReceipt(order) {
   if (itemsEl) {
     const items = order.items || [];
     if (items.length) {
-      itemsEl.innerHTML = items.map(x =>
-        `<div style="display:flex;justify-content:space-between;margin-bottom:3px;">
-          <span>${escapeHtml(x.name)} ×${escapeHtml(x.quantity)}</span>
-          <span>${money(x.unit_price * x.quantity)}</span>
-        </div>`
-      ).join('');
+      itemsEl.innerHTML = items.map(x => {
+        const quantity=Number(x.quantity)||0,unitPrice=Number(x.unit_price)||0;
+        const modifiers=receiptModifierDetails(x).map(detail=>
+          `<div style="display:flex;justify-content:space-between;padding-left:12px;color:#555;font-size:10px;">
+            <span>+ ${escapeHtml(detail.text)}</span>
+            <span>${detail.price>0?`${money(detail.price)} / item`:''}</span>
+          </div>`
+        ).join('');
+        return `<div style="margin-bottom:6px;">
+          <div style="display:flex;justify-content:space-between;">
+            <span>${escapeHtml(x.name)} ×${escapeHtml(quantity)}</span>
+            <span>${money(unitPrice*quantity)}</span>
+          </div>
+          ${modifiers}
+        </div>`;
+      }).join('');
     } else {
       itemsEl.innerHTML = '<p style="margin:0;color:#888;font-size:10px;">ไม่พบรายละเอียดสินค้า</p>';
     }
@@ -875,21 +895,55 @@ function buildBrewCard(x) {
 }
 
 // ── Reports dialog ────────────────────────────────────────────
+function populateReportFilters() {
+  const category=$('#report-category'),product=$('#report-product');
+  if(category&&category.options.length<=1){
+    state.categories.forEach(row=>category.add(new Option(displayName(row)||row.category_key,row.category_key)));
+  }
+  if(product&&product.options.length<=1){
+    state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'th')).forEach(row=>product.add(new Option(row.name,String(row.id))));
+  }
+}
+function reportQueryString() {
+  const params=new URLSearchParams(),fields={
+    dateFrom:$('#report-date-from')?.value,
+    dateTo:$('#report-date-to')?.value,
+    category:$('#report-category')?.value,
+    productId:$('#report-product')?.value,
+    salesChannel:$('#report-sales-channel')?.value
+  };
+  if(fields.dateFrom&&fields.dateTo&&fields.dateFrom>fields.dateTo)throw new Error('Start date must not be after end date');
+  Object.entries(fields).forEach(([key,value])=>{if(value)params.set(key,value);});
+  const value=params.toString();return value?`?${value}`:'';
+}
+function renderReportRanking(selector,rows,valueLabel) {
+  const root=$(selector);if(!root)return;root.replaceChildren();
+  if(!rows?.length){root.innerHTML='<p style="color:#aaa;font-size:12px;">No data</p>';return;}
+  rows.forEach((row,index)=>{
+    const item=document.createElement('div');item.className='report-ranking-row';
+    const label=document.createElement('span');label.textContent=`${index+1}. ${row.name}`;
+    const value=document.createElement('strong');value.textContent=valueLabel(row);
+    item.append(label,value);root.append(item);
+  });
+}
+
 const reportsBtn = $('#reportsBtn');
 if (reportsBtn) {
   reportsBtn.onclick = async () => {
     if (!state.features.reports) return;
     try {
+      populateReportFilters();
+      const query=reportQueryString();
       const [analytics, transactions] = await Promise.all([
-        api('/api/reports/analytics'),
-        api('/api/reports/transactions')
+        api(`/api/reports/analytics${query}`),
+        api(`/api/reports/transactions${query}`)
       ]);
 
       const storeTransactions = transactions.filter(order => (order.sales_channel || 'store') !== 'online');
       const onlineTransactions = transactions.filter(order => order.sales_channel === 'online');
-      const totalSales = storeTransactions.reduce((s, o) => s + o.total, 0);
-      const totalBills = storeTransactions.length;
-      const avgBill = totalBills ? totalSales / totalBills : 0;
+      const totalSales = Number(analytics.summary?.totalSales ?? transactions.reduce((sum,order)=>sum+Number(order.total||0),0));
+      const totalBills = Number(analytics.summary?.totalOrders ?? transactions.length);
+      const avgBill = Number(analytics.summary?.averageBill ?? (totalBills ? totalSales / totalBills : 0));
 
       const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
       set('#rep-total-sales', money(totalSales));
@@ -926,10 +980,11 @@ if (reportsBtn) {
       const topEl = $('#rep-top-sellers-list');
       if (topEl) {
         topEl.replaceChildren();
-        if (!analytics.topSellers.length) {
+        const quantityRows=analytics.topByQuantity||analytics.topSellers||[];
+        if (!quantityRows.length) {
           topEl.innerHTML = '<p style="color:#aaa;font-size:12px;">ยังไม่มีข้อมูล</p>';
         } else {
-          analytics.topSellers.forEach((x, i) => {
+          quantityRows.forEach((x, i) => {
             const item = document.createElement('div');
             item.style.cssText = 'font-size:12px;display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f9f6f3;';
             item.innerHTML = `<span>${i + 1}. <b>${escapeHtml(x.name)}</b> (${escapeHtml(x.qty)} ชิ้น)</span><span style="font-weight:700;color:var(--primary);">${money(x.revenue)}</span>`;
@@ -937,13 +992,15 @@ if (reportsBtn) {
           });
         }
       }
+      renderReportRanking('#rep-top-revenue-list',analytics.topByRevenue||[],row=>money(row.revenue));
+      renderReportRanking('#rep-top-addons-list',analytics.topAddons||[],row=>`${row.qty} ×${Number(row.revenue)>0?` · ${money(row.revenue)}`:''}`);
 
       // Payment methods
       const pmEl = $('#rep-payment-methods');
       if (pmEl) {
-        const cashSales = storeTransactions.filter(x => x.payment_type === 'cash').reduce((sum,x)=>sum+x.total,0);
-        const qrSales = storeTransactions.filter(x => x.payment_type === 'qr').reduce((sum,x)=>sum+x.total,0);
-        const onlineSales = onlineTransactions.reduce((sum,x)=>sum+Number(x.online_net ?? (x.total * (1 - Number(x.gp_percent || 0) / 100))),0);
+        const cashSales = Number(analytics.breakdown?.storeCash ?? storeTransactions.filter(x => x.payment_type === 'cash').reduce((sum,x)=>sum+x.total,0));
+        const qrSales = Number(analytics.breakdown?.storeQr ?? storeTransactions.filter(x => x.payment_type === 'qr').reduce((sum,x)=>sum+x.total,0));
+        const onlineSales = Number(analytics.breakdown?.onlineNet ?? onlineTransactions.reduce((sum,x)=>sum+Number(x.online_net ?? (x.total * (1 - Number(x.gp_percent || 0) / 100))),0));
         pmEl.innerHTML = `
           <div style="text-align:center;flex:1;">
             <div style="font-size:11px;color:#888;">💵 เงินสด</div>
@@ -990,10 +1047,15 @@ if (reportsBtn) {
         }
       }
 
-      $('#reports-dialog')?.showModal();
+      const dialog=$('#reports-dialog');if(dialog&&!dialog.open)dialog.showModal();
     } catch (e) { showNotice(e.message, 'error'); }
   };
 }
+$('#report-apply-filters') && ($('#report-apply-filters').onclick=()=>reportsBtn?.click());
+$('#report-reset-filters') && ($('#report-reset-filters').onclick=()=>{
+  ['#report-date-from','#report-date-to','#report-category','#report-product','#report-sales-channel'].forEach(selector=>{const element=$(selector);if(element)element.value='';});
+  reportsBtn?.click();
+});
 
 // ── Settings & Admin tabs ─────────────────────────────────────
 document.querySelectorAll('.admin-tab-btn').forEach(btn => {

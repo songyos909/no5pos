@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260729-10">
+  <link rel="stylesheet" href="./styles.css?v=20260730-11">
 </head>
 <body>
   <header class="topbar">
@@ -532,6 +532,24 @@
         <button class="close" type="button" onclick="document.getElementById('reports-dialog').close()">×</button>
       </header>
       <div style="padding: 24px; overflow-y: auto; max-height: 75vh;">
+        <section class="report-filters" aria-label="Report filters">
+          <label>From date<input id="report-date-from" type="date"></label>
+          <label>To date<input id="report-date-to" type="date"></label>
+          <label>Category<select id="report-category"><option value="">All categories</option></select></label>
+          <label>Product<select id="report-product"><option value="">All products</option></select></label>
+          <label>Sales channel
+            <select id="report-sales-channel">
+              <option value="">All channels</option>
+              <option value="store">In-store</option>
+              <option value="online">Online</option>
+            </select>
+          </label>
+          <div class="report-filter-actions">
+            <button id="report-apply-filters" type="button">Apply filters</button>
+            <button id="report-reset-filters" type="button">Reset</button>
+          </div>
+        </section>
+
         <!-- Overview Cards -->
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px;">
           <div style="background: #faf8f5; border: 1px solid var(--panel-border); border-radius: 12px; padding: 16px; text-align: center; box-shadow: var(--shadow-sm);">
@@ -557,9 +575,20 @@
           </div>
           <!-- Top Sellers -->
           <div style="border: 1px solid var(--panel-border); border-radius: 12px; padding: 16px; background:#fff; box-shadow: var(--shadow-sm);">
-            <h4 style="margin: 0 0 12px; font-size: 13.5px; font-weight: 700; color: var(--primary); border-bottom: 1px solid #f1e7de; padding-bottom: 6px;">5 อันดับสินค้าขายดีที่สุด</h4>
+            <h4 style="margin: 0 0 12px; font-size: 13.5px; font-weight: 700; color: var(--primary); border-bottom: 1px solid #f1e7de; padding-bottom: 6px;">สินค้าขายดีตามจำนวน</h4>
             <div id="rep-top-sellers-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
           </div>
+        </div>
+
+        <div class="report-ranking-grid">
+          <section class="report-ranking-card">
+            <h4>Top products by revenue</h4>
+            <div id="rep-top-revenue-list" class="report-ranking-list"></div>
+          </section>
+          <section class="report-ranking-card">
+            <h4>Top add-ons</h4>
+            <div id="rep-top-addons-list" class="report-ranking-list"></div>
+          </section>
         </div>
 
         <!-- Payment methods breakdown -->
@@ -676,7 +705,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260729-10"></script>
-  <script src="./app.js?v=20260729-10"></script>
+  <script src="./firebase-client.js?v=20260730-11"></script>
+  <script src="./app.js?v=20260730-11"></script>
 </body>
 </html>

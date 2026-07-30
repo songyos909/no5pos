@@ -231,17 +231,18 @@ const normalizeCustomOptions = raw => (Array.isArray(raw) ? raw : []).slice(0,12
 const selectedCustomOptions = (product, raw={}) => {
   let groups=[];
   try { groups=normalizeCustomOptions(JSON.parse(product.custom_options_json||'[]')); } catch {}
-  const custom={},custom_labels=[]; let extra=0;
+  const custom={},custom_labels=[],custom_details=[]; let extra=0;
   for(const group of groups) {
     const requested=raw?.custom?.[group.id];
     const choice=group.choices.find(item=>String(item.id)===String(requested));
     if(choice) {
       custom[group.id]=choice.id;
       custom_labels.push(`${group.name}: ${choice.label}`);
+      custom_details.push({group:group.name,label:choice.label,price:choice.price});
       extra+=choice.price;
     }
   }
-  return {custom,custom_labels,extra};
+  return {custom,custom_labels,custom_details,extra};
 };
 const getOptionGroups = () => db.prepare('SELECT id,name,choices_json FROM option_groups WHERE active=1 ORDER BY name').all().map(row=>({
   id:row.id,name:row.name,choices:normalizeCustomOptions([{id:row.id,name:row.name,choices:JSON.parse(row.choices_json||'[]')}])[0]?.choices||[]
@@ -328,7 +329,7 @@ app.post('/api/orders', (req,res) => {
         if(!product || !product.active || !Number.isInteger(qty) || qty<1 || qty>99) throw Error('Invalid order item');
         const raw=row.options||{};
         const selected=selectedCustomOptions(product,raw);
-        const options={custom:selected.custom,custom_labels:selected.custom_labels};
+        const options={custom:selected.custom,custom_labels:selected.custom_labels,custom_details:selected.custom_details};
         const savedPrice=channel?db.prepare('SELECT sale_price FROM channel_prices WHERE product_id=? AND channel_key=?').get(product.id,channel.channel_key):null;
         const unitPrice=Number(savedPrice?.sale_price??product.price)+selected.extra;
         subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
@@ -430,43 +431,109 @@ app.post('/api/orders-legacy', (req,res) => {
   } catch(e) { fail(res,e.message); }
 });
 
-app.get('/api/reports/analytics', (_, res) => {
+const reportFilters = req => ({
+  dateFrom:/^\d{4}-\d{2}-\d{2}$/.test(String(req.query.dateFrom||''))?String(req.query.dateFrom):null,
+  dateTo:/^\d{4}-\d{2}-\d{2}$/.test(String(req.query.dateTo||''))?String(req.query.dateTo):null,
+  category:String(req.query.category||'').trim().slice(0,80)||null,
+  productId:String(req.query.productId||'').trim().slice(0,80)||null,
+  salesChannel:['store','online'].includes(String(req.query.salesChannel||''))?String(req.query.salesChannel):null
+});
+const reportOrderWhere = filters => {
+  const where=[],params=[];
+  if(filters.dateFrom){where.push("date(o.created_at,'+7 hours')>=?");params.push(filters.dateFrom);}
+  if(filters.dateTo){where.push("date(o.created_at,'+7 hours')<=?");params.push(filters.dateTo);}
+  if(filters.salesChannel){where.push("coalesce(o.sales_channel,'store')=?");params.push(filters.salesChannel);}
+  if(filters.category||filters.productId){
+    const itemWhere=['fx.order_id=o.id'];
+    if(filters.category){itemWhere.push('fp.category=?');params.push(filters.category);}
+    if(filters.productId){itemWhere.push('CAST(fx.product_id AS TEXT)=?');params.push(filters.productId);}
+    where.push(`EXISTS (SELECT 1 FROM order_items fx LEFT JOIN products fp ON fp.id=fx.product_id WHERE ${itemWhere.join(' AND ')})`);
+  }
+  return {sql:where.length?`WHERE ${where.join(' AND ')}`:'',params};
+};
+const reportItemWhere = filters => {
+  const where=[],params=[];
+  if(filters.dateFrom){where.push("date(o.created_at,'+7 hours')>=?");params.push(filters.dateFrom);}
+  if(filters.dateTo){where.push("date(o.created_at,'+7 hours')<=?");params.push(filters.dateTo);}
+  if(filters.salesChannel){where.push("coalesce(o.sales_channel,'store')=?");params.push(filters.salesChannel);}
+  if(filters.category){where.push('p.category=?');params.push(filters.category);}
+  if(filters.productId){where.push('CAST(oi.product_id AS TEXT)=?');params.push(filters.productId);}
+  return {sql:where.length?`WHERE ${where.join(' AND ')}`:'',params};
+};
+const addonRows = items => {
+  const totals=new Map();
+  items.forEach(item=>{
+    let options={};try{options=JSON.parse(item.options_json||'{}');}catch{}
+    const details=Array.isArray(options.custom_details)
+      ? options.custom_details.map(x=>({name:`${x.group}: ${x.label}`,price:Math.max(0,Number(x.price)||0)}))
+      : (Array.isArray(options.custom_labels)?options.custom_labels:[]).map(name=>({name:String(name),price:0}));
+    details.forEach(detail=>{
+      const row=totals.get(detail.name)||{name:detail.name,qty:0,revenue:0};
+      row.qty+=Number(item.quantity)||0;
+      row.revenue+=detail.price*(Number(item.quantity)||0);
+      totals.set(detail.name,row);
+    });
+  });
+  return [...totals.values()].sort((a,b)=>b.qty-a.qty||b.revenue-a.revenue).slice(0,10);
+};
+
+app.get('/api/reports/analytics', (req, res) => {
   if (!enabled('reports')) return fail(res, 'ยังไม่ได้เปิดฟังก์ชันรายงาน', 403);
   try {
-    const categorySales = db.prepare(`
-      SELECT p.category, SUM(oi.unit_price * oi.quantity) as sales
+    const filters=reportFilters(req),itemFilter=reportItemWhere(filters),orderFilter=reportOrderWhere(filters);
+    const items=db.prepare(`
+      SELECT oi.order_id,oi.product_id,oi.name,oi.unit_price,oi.quantity,oi.options_json,coalesce(p.category,'other') category
       FROM order_items oi
-      JOIN orders o ON o.id = oi.order_id
-      LEFT JOIN products p ON p.id = oi.product_id
-      GROUP BY p.category
-    `).all();
-
-    const paymentSales = db.prepare(`
-      SELECT payment_type, SUM(total) as sales
-      FROM orders
-      GROUP BY payment_type
-    `).all();
-
-    const topSellers = db.prepare(`
-      SELECT name, SUM(quantity) as qty, SUM(unit_price * quantity) as revenue
-      FROM order_items
-      GROUP BY name
-      ORDER BY qty DESC
-      LIMIT 5
-    `).all();
-
-    res.json({ categorySales, paymentSales, topSellers });
+      JOIN orders o ON o.id=oi.order_id
+      LEFT JOIN products p ON p.id=oi.product_id
+      ${itemFilter.sql}
+    `).all(...itemFilter.params);
+    const orders=db.prepare(`SELECT o.id,o.payment_type,o.total,coalesce(o.sales_channel,'store') sales_channel,o.gp_percent,o.online_net FROM orders o ${orderFilter.sql}`).all(...orderFilter.params);
+    const categories=new Map(),products=new Map(),payments=new Map(),itemSalesByOrder=new Map();
+    items.forEach(item=>{
+      const revenue=Number(item.unit_price||0)*Number(item.quantity||0);
+      itemSalesByOrder.set(item.order_id,(itemSalesByOrder.get(item.order_id)||0)+revenue);
+      categories.set(item.category,(categories.get(item.category)||0)+revenue);
+      const key=String(item.product_id??item.name),row=products.get(key)||{product_id:item.product_id,name:item.name,qty:0,revenue:0};
+      row.qty+=Number(item.quantity)||0;row.revenue+=revenue;products.set(key,row);
+    });
+    const lineFiltered=!!(filters.category||filters.productId);
+    const breakdown={storeCash:0,storeQr:0,onlineGross:0,onlineNet:0};
+    orders.forEach(order=>{
+      const amount=lineFiltered?Number(itemSalesByOrder.get(order.id)||0):Number(order.total||0);
+      payments.set(order.payment_type,(payments.get(order.payment_type)||0)+amount);
+      if(order.sales_channel==='online'){
+        breakdown.onlineGross+=amount;
+        breakdown.onlineNet+=lineFiltered?amount*(1-Number(order.gp_percent||0)/100):Number(order.online_net??order.total??0);
+      }else if(order.payment_type==='cash')breakdown.storeCash+=amount;
+      else breakdown.storeQr+=amount;
+    });
+    const productRows=[...products.values()];
+    const topByQuantity=[...productRows].sort((a,b)=>b.qty-a.qty||b.revenue-a.revenue).slice(0,10);
+    const topByRevenue=[...productRows].sort((a,b)=>b.revenue-a.revenue||b.qty-a.qty).slice(0,10);
+    const totalSales=[...payments.values()].reduce((sum,value)=>sum+value,0);
+    res.json({
+      summary:{totalSales,totalOrders:orders.length,averageBill:orders.length?totalSales/orders.length:0},
+      categorySales:[...categories].map(([category,sales])=>({category,sales})),
+      paymentSales:[...payments].map(([payment_type,sales])=>({payment_type,sales})),
+      breakdown,
+      topSellers:topByQuantity,
+      topByQuantity,
+      topByRevenue,
+      topAddons:addonRows(items)
+    });
   } catch (e) {
     fail(res, e.message, 500);
   }
 });
 
-app.get('/api/reports/transactions', (_, res) => {
+app.get('/api/reports/transactions', (req, res) => {
   if (!enabled('reports')) return fail(res, 'ยังไม่ได้เปิดฟังก์ชันรายงาน', 403);
   try {
-    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 50').all();
+    const filter=reportOrderWhere(reportFilters(req));
+    const orders = db.prepare(`SELECT o.* FROM orders o ${filter.sql} ORDER BY o.created_at DESC LIMIT 200`).all(...filter.params);
     const transactions = orders.map(o => {
-      const items = db.prepare('SELECT name, unit_price, quantity, options_json FROM order_items WHERE order_id=?').all(o.id);
+      const items = db.prepare('SELECT product_id,name,unit_price,quantity,options_json FROM order_items WHERE order_id=?').all(o.id);
       return {
         id: o.id,
         created_at: o.created_at,
