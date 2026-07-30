@@ -152,9 +152,10 @@ insertInv.run('straw', 'หลอดพลาสติก', 'เส้น', 1500
 const setUnitCost = db.prepare('UPDATE inventory SET cost_per_unit=? WHERE stock_key=?');
 [[0.65,'coffee_beans'],[0.065,'milk'],[0.0737,'condensed_milk'],[0.0543,'evaporated_milk'],[0.22,'cocoa_powder'],[0.28,'tea_leaves'],[0.4072,'caramel_syrup'],[0.00175,'ice']].forEach(x => setUnitCost.run(...x));
 
-if (db.prepare('SELECT count(*) AS n FROM categories').get().n === 0) {
-  [['coffee','กาแฟ'],['tea','ชาและนม'],['bakery','เบเกอรี่'],['other','อื่น ๆ']].forEach(x => db.prepare('INSERT INTO categories(category_key,name) VALUES (?,?)').run(...x));
-}
+const requiredCategories=[['coffee','กาแฟ'],['tea','ชาและนม'],['food','อาหาร'],['dessert','ของหวาน'],['bakery','เบเกอรี่'],['other','อื่น ๆ']];
+const insertRequiredCategory=db.prepare('INSERT OR IGNORE INTO categories(category_key,name,active) VALUES (?,?,1)');
+const activateRequiredCategory=db.prepare('UPDATE categories SET active=1 WHERE category_key=?');
+requiredCategories.forEach(([key,name])=>{insertRequiredCategory.run(key,name);activateRequiredCategory.run(key);});
 if (db.prepare('SELECT count(*) AS n FROM sales_channels').get().n === 0) {
   [['lineman','LINE MAN',0],['grab','GrabFood',0],['shopee','ShopeeFood',0]].forEach(x => db.prepare('INSERT INTO sales_channels(channel_key,name,gp_percent) VALUES (?,?,?)').run(...x));
 }

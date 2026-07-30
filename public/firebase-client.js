@@ -94,6 +94,25 @@
     || String(a.name||'').localeCompare(String(b.name||''),'th')
   );
   const defaultChannelKeys = new Set(defaults.channels.map(([id])=>id));
+  const defaultCategoryKeys = new Set(defaults.categories.map(([id])=>id));
+  const restoreDefaultCategories = async () => {
+    const snapshot=await db.collection('categories').get(),byId=new Map(snapshot.docs.map(doc=>[doc.id,doc]));
+    const batch=db.batch();let changes=0;
+    defaults.categories.forEach(([id,name])=>{
+      const existing=byId.get(id);
+      if(!existing){batch.set(db.collection('categories').doc(id),{name,active:true});changes++;return;}
+      if(existing.data().active===false){batch.set(existing.ref,{active:true},{merge:true});changes++;}
+    });
+    if(changes)await batch.commit();
+  };
+  const effectiveFirebaseCategories = categories => {
+    const byId=new Map(defaults.categories.map(([id,name])=>[id,{id,name,active:true}]));
+    categories.forEach(category=>{
+      const current=byId.get(category.id)||{};
+      byId.set(category.id,{...current,...category,active:defaultCategoryKeys.has(category.id)?true:category.active!==false});
+    });
+    return [...byId.values()].filter(category=>category.active!==false);
+  };
   const restoreDefaultChannels = async () => {
     const snapshot=await db.collection('channels').get(),byId=new Map(snapshot.docs.map(doc=>[doc.id,doc]));
     const batch=db.batch();let changes=0;
@@ -142,7 +161,7 @@
   window.firebaseApi = async (url,opts={}) => {
     await window.firebaseReady;
     const parsedUrl=new URL(url,window.location.origin);const path=parsedUrl.pathname.replace(/^\/api\//,'').replace(/^\//,'');const query=parsedUrl.searchParams; const method=(opts.method||'GET').toUpperCase(); const data=body(opts);
-    if(path==='bootstrap' && method==='GET') { await restoreDefaultChannels();const [products,inventory,categories,channels,channelPrices,optionGroups,settings]=await Promise.all([docs('products'),docs('inventory'),docs('categories'),docs('channels'),docs('channelPrices'),docs('optionGroups'),db.collection('settings').doc('features').get()]); const categoryRows=categories.length?categories.filter(x=>x.active!==false).map(x=>({category_key:x.id,...x})):defaults.categories.map(([category_key,name])=>({category_key,name,active:true}));const channelRows=effectiveFirebaseChannels(channels).map(x=>({channel_key:x.id,...x}));const features=Object.fromEntries(Object.entries(settings.data()||defaults.features).filter(([key])=>Object.hasOwn(defaults.features,key)));return {products:sortBySavedOrder(products.filter(x=>x.active!==false)).map(x=>({id:Number(x.id)||x.id,...localized(x)})),inventory:inventory.map(x=>({stock_key:x.id,...localized(x)})),categories:categoryRows,channels:channelRows,channelPrices,optionGroups:sortBySavedOrder(optionGroups),features,membersEnabled:true}; }
+    if(path==='bootstrap' && method==='GET') { await Promise.all([restoreDefaultCategories(),restoreDefaultChannels()]);const [products,inventory,categories,channels,channelPrices,optionGroups,settings]=await Promise.all([docs('products'),docs('inventory'),docs('categories'),docs('channels'),docs('channelPrices'),docs('optionGroups'),db.collection('settings').doc('features').get()]); const categoryRows=effectiveFirebaseCategories(categories).map(x=>({category_key:x.id,...x}));const channelRows=effectiveFirebaseChannels(channels).map(x=>({channel_key:x.id,...x}));const features=Object.fromEntries(Object.entries(settings.data()||defaults.features).filter(([key])=>Object.hasOwn(defaults.features,key)));return {products:sortBySavedOrder(products.filter(x=>x.active!==false)).map(x=>({id:Number(x.id)||x.id,...localized(x)})),inventory:inventory.map(x=>({stock_key:x.id,...localized(x)})),categories:categoryRows,channels:channelRows,channelPrices,optionGroups:sortBySavedOrder(optionGroups),features,membersEnabled:true}; }
     if(path==='recipes' && method==='GET') { const [products,items,recipes,inventory]=await Promise.all([docs('products'),docs('recipeItems'),docs('recipes'),docs('inventory')]); const inv=Object.fromEntries(inventory.map(x=>[x.id,localized(x)])); const recipeMap=Object.fromEntries(recipes.map(x=>[x.id,x])); return products.filter(x=>x.active!==false).map(p=>({id:p.id,name:localized(p).name,emoji:p.emoji,description:recipeMap[p.id]?.description||'',items:items.filter(x=>x.product_id==p.id).map(x=>({stock_key:x.stock_key,quantity:x.quantity,name:inv[x.stock_key]?.name||x.stock_key,unit:inv[x.stock_key]?.unit||''}))})); }
     if(path==='reports/today' && method==='GET') { const orders=await docs('orders');const thaiDay=v=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(v));const day=thaiDay(Date.now());const today=orders.filter(x=>x.createdAt&&thaiDay(x.createdAt)===day),store=today.filter(x=>(x.salesChannel||'store')!=='online'),online=today.filter(x=>x.salesChannel==='online');return {orders:store.length,sales:store.reduce((n,x)=>n+Number(x.total||0),0),storeOrders:store.length,storeSales:store.reduce((n,x)=>n+Number(x.total||0),0),onlineOrders:online.length,onlineSales:online.reduce((n,x)=>n+Number(x.total||0),0),onlineNet:online.reduce((n,x)=>n+Number(x.onlineNet??(Number(x.total||0)*(1-Number(x.gpPercent||0)/100))),0)}; }
     if(path==='reports/transactions' && method==='GET') { const [orders,items,products]=await Promise.all([docs('orders'),docs('orderItems'),docs('products')]),filters=firebaseReportFilters(query),byId=Object.fromEntries(products.map(p=>[String(p.id),p]));const itemMatches=x=>(!filters.productId||String(x.product_id)===filters.productId)&&(!filters.category||(byId[String(x.product_id)]?.category||'other')===filters.category);const eligible=orders.filter(o=>firebaseOrderMatches(o,filters)&&(!filters.productId&&!filters.category||items.some(x=>x.order_id===o.id&&itemMatches(x))));return eligible.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).slice(0,200).map(o=>({id:o.id,created_at:o.createdAt||o.created_at,subtotal:Number(o.subtotal||0),discount:Number(o.discount||0),total:Number(o.total||0),payment_type:o.paymentType||o.payment_type||'cash',sales_channel:o.salesChannel||o.sales_channel||'store',online_platform:o.onlinePlatform||null,gp_percent:Number(o.gpPercent||0),online_net:Number(o.onlineNet??o.total??0),member_phone:o.memberPhone||null,received:Number(o.received||0),change_due:Number(o.changeDue||0),items:items.filter(x=>x.order_id===o.id).map(x=>({name:x.name,product_id:x.product_id||null,unit_price:Number(x.unit_price||0),quantity:Number(x.quantity||0),options_json:x.options_json||'{}'}))})); }

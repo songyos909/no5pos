@@ -98,6 +98,22 @@ test('Firebase restores required GP channels without replacing saved GP values',
   assert.doesNotMatch(firebase, /existing\.ref,\{gp_percent/);
 });
 
+test('required menu categories are restored without deleting custom categories', async () => {
+  const [server, firebase] = await Promise.all([
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  for (const source of [server, firebase]) {
+    for (const category of ['coffee','tea','food','dessert','bakery','other']) {
+      assert.match(source, new RegExp(`['"]${category}['"]`));
+    }
+  }
+  assert.match(firebase, /restoreDefaultCategories/);
+  assert.match(firebase, /effectiveFirebaseCategories/);
+  assert.match(firebase, /existing\.data\(\)\.active===false/);
+  assert.match(server, /INSERT OR IGNORE INTO categories/);
+});
+
 test('online checkout does not require or store a payment method', async () => {
   const [html, app, server, firebase] = await Promise.all([
     read('public/index.html'),
