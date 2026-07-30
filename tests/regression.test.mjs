@@ -183,9 +183,11 @@ test('all-category catalog ranks best sellers by quantity in both backends', asy
   assert.match(app, /เมนูขายดี เรียงตามจำนวนที่ขายได้/);
   assert.match(app, /bestsellerRank/);
   assert.match(app, /ขายดี #/);
+  assert.match(app, /name\.before\(badge\)/);
   assert.match(server, /sum\(oi\.quantity\) qty/);
   assert.match(server, /ORDER BY qty DESC/);
   assert.match(firebase, /sellerTotals/);
   assert.match(firebase, /\.sort\(\(a,b\)=>b\.qty-a\.qty/);
-  assert.match(css, /\.bestseller-badge/);
+  assert.match(css, /\.product \.bestseller-badge/);
+  assert.doesNotMatch(css, /\.bestseller-badge \{ position:absolute/);
 });

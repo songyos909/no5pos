@@ -432,7 +432,7 @@ function renderProducts() {
       const badge=document.createElement('span');
       badge.className='bestseller-badge';
       badge.textContent=`ขายดี #${bestseller.rank} · ${bestseller.qty} ชิ้น`;
-      card.append(badge);
+      name.before(badge);
     }
 
     if (status === 'low') {

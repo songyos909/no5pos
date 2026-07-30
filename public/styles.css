@@ -1408,7 +1408,8 @@ dialog:not(#kds-dialog) #firebase-login-btn {
 .category-toolbar .catalog-add-btn { flex:0 0 auto; white-space:nowrap; }
 .catalog-list-heading { grid-column:1 / -1; margin:8px 0 0; padding:9px 12px; border-radius:12px; background:#f8f1eb; color:var(--primary); font-size:14px; font-weight:800; }
 .catalog-list-heading.bestseller-heading { background:linear-gradient(135deg,#fff1c7,#ffe4ce); color:#8a4b20; }
-.bestseller-badge { position:absolute; left:8px; top:8px; z-index:2; padding:4px 7px; border-radius:999px; background:#f59e0b; color:#fff; font-size:10px; font-weight:800; box-shadow:0 2px 8px rgba(138,75,32,.22); }
+.product .bestseller-badge { display:inline-flex; width:auto; margin:0 0 7px; padding:3px 7px; border-radius:999px; background:#f59e0b; color:#fff; font-size:10px; line-height:1.25; font-weight:800; box-shadow:none; transition:none; }
+.product:hover .bestseller-badge { transform:none; }
 .image-upload-button {
   display:inline-flex; align-items:center; justify-content:center; min-height:42px;
   margin-top:8px; padding:0 14px; border:1px dashed #b8957f; border-radius:10px;
