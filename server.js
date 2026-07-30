@@ -223,6 +223,20 @@ const admin = (req,res,next) => {
 const enabled = key => db.prepare('SELECT enabled FROM feature_settings WHERE feature_key=?').get(key)?.enabled === 1;
 const id = () => `TX-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 const fail = (res, message, status=400) => res.status(status).json({error:message});
+const normalizeLoyaltySettings = raw => {
+  const mode=['all','category','product'].includes(raw?.mode)?raw.mode:'category';
+  const categoryKeys=[...new Set((Array.isArray(raw?.categoryKeys)?raw.categoryKeys:['coffee','tea']).map(String).filter(Boolean))].slice(0,100);
+  const productIds=[...new Set((Array.isArray(raw?.productIds)?raw.productIds:[]).map(String).filter(Boolean))].slice(0,500);
+  return {mode,categoryKeys,productIds};
+};
+const getLoyaltySettings = () => {
+  const row=db.prepare("SELECT value FROM app_metadata WHERE key='loyalty_settings'").get();
+  try{return normalizeLoyaltySettings(JSON.parse(row?.value||'{}'));}catch{return normalizeLoyaltySettings({});}
+};
+const loyaltyProductEligible = (product,settings=getLoyaltySettings()) =>
+  settings.mode==='all'
+  || (settings.mode==='category'&&settings.categoryKeys.includes(String(product.category)))
+  || (settings.mode==='product'&&settings.productIds.includes(String(product.id)));
 const normalizeCustomOptions = raw => (Array.isArray(raw) ? raw : []).slice(0,12).map((group,index) => ({
   id:String(group?.id||`group_${index+1}`).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40)||`group_${index+1}`,
   name:String(group?.name||'').trim().slice(0,80),
@@ -279,7 +293,7 @@ const getRecipeItems = (productId, stockKey) => {
 };
 const requireRecipe = product => { const items=getRecipeItems(product.id, product.stock_key); if (!items.length) throw Error(`เมนู ${product.name_th || product.name} ยังไม่มีสูตรชง กรุณาตั้งค่าสูตรก่อนขาย`); return items; };
 
-app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY sort_order,category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY sort_order,name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), channelPrices:db.prepare('SELECT product_id,channel_key,sale_price FROM channel_prices').all(), optionGroups:getOptionGroups(), bestSellers:db.prepare('SELECT oi.product_id,sum(oi.quantity) qty FROM order_items oi JOIN products p ON p.id=oi.product_id WHERE p.active=1 GROUP BY oi.product_id ORDER BY qty DESC,oi.product_id LIMIT 10').all(), features:Object.fromEntries(db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
+app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY sort_order,category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY sort_order,name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), channelPrices:db.prepare('SELECT product_id,channel_key,sale_price FROM channel_prices').all(), optionGroups:getOptionGroups(), bestSellers:db.prepare('SELECT oi.product_id,sum(oi.quantity) qty FROM order_items oi JOIN products p ON p.id=oi.product_id WHERE p.active=1 GROUP BY oi.product_id ORDER BY qty DESC,oi.product_id LIMIT 10').all(), loyaltySettings:getLoyaltySettings(), features:Object.fromEntries(db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
 app.get('/api/pricing', (_,res) => res.json(db.prepare(`SELECT p.id product_id,p.name,p.price store_price,c.channel_key,c.name channel_name,c.gp_percent,cp.sale_price,round(p.price/(1-c.gp_percent/100),2) suggested_price FROM products p CROSS JOIN sales_channels c LEFT JOIN channel_prices cp ON cp.product_id=p.id AND cp.channel_key=c.channel_key WHERE p.active=1 AND c.active=1 ORDER BY p.name,c.name`).all()));
 app.get('/api/costing', (_,res) => {
   const products=db.prepare('SELECT id,name,price,category,target_margin FROM products WHERE active=1 ORDER BY sort_order,category,name').all();
@@ -348,7 +362,8 @@ app.post('/api/orders', (req,res) => {
       const beverageLines=lines.filter(line=>['coffee','tea'].includes(line.product.category));
       if(redeemFreeCup&&(!member||Number(member.points)<10)) throw Error('คะแนนไม่เพียงพอสำหรับแลกแก้วฟรี');
       if(redeemFreeCup&&!beverageLines.length) throw Error('ต้องมีเครื่องดื่มอย่างน้อย 1 แก้วเพื่อใช้สิทธิ์');
-      const rewardDiscount=redeemFreeCup?Math.min(...beverageLines.map(line=>line.unitPrice)):0;
+      const rewardLine=redeemFreeCup?beverageLines.reduce((best,line)=>!best||line.unitPrice<best.unitPrice?line:best,null):null;
+      const rewardDiscount=rewardLine?.unitPrice||0;
       const effectiveManual=manualDiscount==null&&redeemFreeCup?Math.max(0,requestedDiscount-rewardDiscount):requestedDiscount;
       const finalDiscount=Math.min(effectiveManual+rewardDiscount,subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
       for(const {product,qty} of lines) if(product.deduct_stock) for(const item of requireRecipe(product)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
@@ -359,19 +374,21 @@ app.post('/api/orders', (req,res) => {
       db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, sales_channel, online_platform, gp_percent, online_net, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,normalizedPaymentType,normalizedSalesChannel,normalizedPlatform,normalizedGp,onlineNet,memberPhone||null,normalizedReceived,normalizedChange);
       for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name_th||product.name,unitPrice,qty,JSON.stringify(options)); if(product.deduct_stock) for(const item of requireRecipe(product)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
       
-      let memberPoints = 0;
+      let memberPoints = 0, pointsEarned = 0;
       if(member) {
-          let cupsEarned = beverageLines.reduce((sum,line)=>sum+line.qty,0);
+          const loyaltySettings=getLoyaltySettings();
+          let cupsEarned = lines.filter(line=>loyaltyProductEligible(line.product,loyaltySettings)).reduce((sum,line)=>sum+line.qty,0);
           let newPoints = member.points;
           if (redeemFreeCup) {
             newPoints -= 10;
-            cupsEarned = Math.max(0, cupsEarned - 1);
+            if(rewardLine&&loyaltyProductEligible(rewardLine.product,loyaltySettings))cupsEarned=Math.max(0,cupsEarned-1);
           }
           newPoints += cupsEarned;
+          pointsEarned = cupsEarned;
           db.prepare('UPDATE members SET points=? WHERE phone=?').run(newPoints, memberPhone);
           memberPoints = newPoints;
       }
-      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType:normalizedPaymentType,salesChannel:normalizedSalesChannel,onlinePlatform:normalizedPlatform,gpPercent:normalizedGp,onlineNet,memberPhone,received:normalizedReceived,changeDue:normalizedChange,memberPoints,items:lines.map(x=>({name:x.product.name_th||x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
+      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType:normalizedPaymentType,salesChannel:normalizedSalesChannel,onlinePlatform:normalizedPlatform,gpPercent:normalizedGp,onlineNet,memberPhone,received:normalizedReceived,changeDue:normalizedChange,memberPoints,pointsEarned,items:lines.map(x=>({name:x.product.name_th||x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
     })();
     res.status(201).json(order);
   } catch(e) { fail(res,e.message); }
@@ -568,6 +585,13 @@ app.get('/api/reports/transactions', (req, res) => {
 });
 
 app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all()}));
+app.put('/api/admin/loyalty-settings', admin, (req,res) => {
+  const settings=normalizeLoyaltySettings(req.body||{});
+  if(settings.mode==='category'&&!settings.categoryKeys.length)return fail(res,'เลือกหมวดหมู่ที่ให้แต้มอย่างน้อย 1 หมวด');
+  if(settings.mode==='product'&&!settings.productIds.length)return fail(res,'เลือกเมนูที่ให้แต้มอย่างน้อย 1 รายการ');
+  db.prepare("INSERT INTO app_metadata(key,value) VALUES ('loyalty_settings',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(settings));
+  res.json({ok:true,loyaltySettings:settings});
+});
 app.get('/api/admin/recipe-groups', admin, (_,res) => res.json(db.prepare('SELECT * FROM recipe_groups ORDER BY name').all().map(x=>({id:x.id,name:x.name,items:JSON.parse(x.items_json)}))));
 app.post('/api/admin/recipe-groups', admin, (req,res) => { const name=String(req.body?.name||'').trim(),items=Array.isArray(req.body?.items)?req.body.items.filter(x=>x.stock_key&&Number(x.quantity)>0):[];if(!name||!items.length)return fail(res,'ข้อมูลกลุ่มไม่ถูกต้อง');const groupId=`grp_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;db.prepare('INSERT INTO recipe_groups(id,name,items_json,created_at) VALUES (?,?,?,?)').run(groupId,name,JSON.stringify(items),new Date().toISOString());res.status(201).json({id:groupId}); });
 app.delete('/api/admin/recipe-groups/:id', admin, (req,res) => { const r=db.prepare('DELETE FROM recipe_groups WHERE id=?').run(req.params.id);return r.changes?res.json({ok:true}):fail(res,'ไม่พบกลุ่มรายการ',404); });
