@@ -88,3 +88,12 @@ test('Firebase migration includes options, online prices and boolean conversion'
   assert.match(html, /deduct_stock:x\.deduct_stock!==0/);
   assert.match(html, /active:x\.active!==0/);
 });
+
+test('Firebase restores required GP channels without replacing saved GP values', async () => {
+  const firebase = await read('public/firebase-client.js');
+  assert.match(firebase, /restoreDefaultChannels/);
+  assert.match(firebase, /effectiveFirebaseChannels/);
+  assert.match(firebase, /existing\.data\(\)\.active===false/);
+  assert.match(firebase, /\{active:true\},\{merge:true\}/);
+  assert.doesNotMatch(firebase, /existing\.ref,\{gp_percent/);
+});
