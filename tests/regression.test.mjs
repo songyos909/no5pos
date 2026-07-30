@@ -157,6 +157,28 @@ test('menu, option group and option choice ordering persist in both backends', a
   assert.match(firebase, /sortBySavedOrder/);
 });
 
+test('category ordering persists with drag and arrow controls in both backends', async () => {
+  const [app, server, firebase, css] = await Promise.all([
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js'),
+    read('public/styles.css')
+  ]);
+  assert.match(app, /admin\/categories\/order/);
+  assert.match(app, /persistCategoryOrder/);
+  assert.match(app, /data-category-up/);
+  assert.match(app, /data-category-down/);
+  assert.match(app, /ลากจัดลำดับหมวดหมู่/);
+  assert.match(server, /ALTER TABLE categories ADD COLUMN sort_order/);
+  assert.match(server, /ORDER BY sort_order,name/);
+  for (const source of [server, firebase]) {
+    assert.match(source, /admin\/categories\/order/);
+    assert.match(source, /ลำดับหมวดหมู่ไม่ถูกต้อง/);
+  }
+  assert.match(firebase, /sortBySavedOrder\(\[\.\.\.byId\.values\(\)\]/);
+  assert.match(css, /\.category-order-actions/);
+});
+
 test('modifier choices support separate online prices with store-price fallback', async () => {
   const [html, app, server, firebase] = await Promise.all([
     read('public/index.html'),

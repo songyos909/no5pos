@@ -1326,6 +1326,17 @@ async function saveProductOrder(products,index,direction) {
   if(ordered===products)return;
   await persistProductOrder(ordered.map(item=>item.id));
 }
+async function persistCategoryOrder(ids) {
+  await api('/api/admin/categories/order',{method:'PUT',body:JSON.stringify({ids})});
+  await load();
+  await adminLoad();
+  showNotice('บันทึกลำดับหมวดหมู่แล้ว');
+}
+async function saveCategoryOrder(categories,index,direction) {
+  const ordered=moveArrayItem(categories,index,direction);
+  if(ordered===categories)return;
+  await persistCategoryOrder(ordered.map(item=>item.category_key));
+}
 async function persistOptionGroupOrder(ids) {
   const editingId=optionGroupEditingId;
   await api('/api/admin/option-groups/order',{method:'PUT',body:JSON.stringify({ids})});
@@ -1469,13 +1480,17 @@ function renderCategoriesTable() {
         </tr>
       </thead>
       <tbody>
-        ${state.categories.map(c => `
-          <tr style="border-bottom:1px solid #faf6f2;">
+        ${state.categories.map((c,index) => `
+          <tr data-sort-id="${escapeHtml(c.category_key)}" style="border-bottom:1px solid #faf6f2;">
             <td style="padding:8px;font-family:Courier,monospace;font-weight:600;">${escapeHtml(c.category_key)}</td>
-            <td style="padding:8px;">${escapeHtml(c.name)}</td><td style="padding:5px;white-space:nowrap;"><button data-edit-category="${escapeHtml(c.category_key)}">✏️</button> <button data-delete-category="${escapeHtml(c.category_key)}">🗑️</button></td>
+            <td style="padding:8px;">${escapeHtml(c.name)}</td><td class="category-order-actions" style="padding:5px;white-space:nowrap;"><button type="button" class="press-drag-handle" data-sort-handle title="แตะค้างแล้วลากจัดลำดับ" aria-label="ลากจัดลำดับหมวดหมู่">⠿</button> <button type="button" data-category-up="${escapeHtml(c.category_key)}" ${index===0?'disabled':''} title="เลื่อนขึ้น">↑</button> <button type="button" data-category-down="${escapeHtml(c.category_key)}" ${index===state.categories.length-1?'disabled':''} title="เลื่อนลง">↓</button> <button data-edit-category="${escapeHtml(c.category_key)}">✏️</button> <button data-delete-category="${escapeHtml(c.category_key)}">🗑️</button></td>
           </tr>`).join('')}
       </tbody>
     </table>`;
+  const tbody=el.querySelector('tbody');
+  bindPressDragSort(tbody,'tr[data-sort-id]',persistCategoryOrder);
+  el.querySelectorAll('[data-category-up]').forEach(btn=>btn.onclick=()=>{const key=btn.getAttribute('data-category-up'),index=state.categories.findIndex(item=>item.category_key===key);saveCategoryOrder(state.categories,index,-1).catch(error=>showNotice(error.message,'error'));});
+  el.querySelectorAll('[data-category-down]').forEach(btn=>btn.onclick=()=>{const key=btn.getAttribute('data-category-down'),index=state.categories.findIndex(item=>item.category_key===key);saveCategoryOrder(state.categories,index,1).catch(error=>showNotice(error.message,'error'));});
   el.querySelectorAll('[data-edit-category]').forEach(btn => btn.onclick = async () => {
     const key = btn.getAttribute('data-edit-category'); const item = state.categories.find(x => x.category_key === key); const name = prompt('ชื่อหมวดหมู่', item?.name || ''); if (!name) return;
     try { await api(`/api/admin/categories/${key}`, {method:'PUT',body:JSON.stringify({name})}); await adminLoad(); await load(); } catch (e) { showNotice(e.message,'error'); }

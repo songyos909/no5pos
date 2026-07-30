@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS feature_settings (feature_key TEXT PRIMARY KEY, enabl
 CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, subtotal REAL NOT NULL, discount REAL NOT NULL, total REAL NOT NULL, payment_type TEXT NOT NULL, sales_channel TEXT NOT NULL DEFAULT 'store', online_platform TEXT, gp_percent REAL NOT NULL DEFAULT 0, online_net REAL, member_phone TEXT REFERENCES members(phone));
 CREATE TABLE IF NOT EXISTS order_items (id INTEGER PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id), product_id INTEGER, name TEXT NOT NULL, unit_price REAL NOT NULL, quantity INTEGER NOT NULL, options_json TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE IF NOT EXISTS stock_movements (id INTEGER PRIMARY KEY, stock_key TEXT NOT NULL REFERENCES inventory(stock_key), quantity REAL NOT NULL, reason TEXT NOT NULL, order_id TEXT REFERENCES orders(id), created_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS categories (category_key TEXT PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS categories (category_key TEXT PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS option_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, choices_json TEXT NOT NULL DEFAULT '[]', active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS sales_channels (channel_key TEXT PRIMARY KEY, name TEXT NOT NULL, gp_percent REAL NOT NULL DEFAULT 0 CHECK(gp_percent >= 0 AND gp_percent < 100), active INTEGER NOT NULL DEFAULT 1);
@@ -75,6 +75,7 @@ try { db.exec('ALTER TABLE products ADD COLUMN image_data TEXT'); } catch {}
 try { db.exec("ALTER TABLE products ADD COLUMN custom_options_json TEXT NOT NULL DEFAULT '[]'"); } catch {}
 try { db.exec("ALTER TABLE products ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE option_groups ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN sales_channel TEXT NOT NULL DEFAULT 'store'"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN online_platform TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN gp_percent REAL NOT NULL DEFAULT 0"); } catch {}
@@ -278,7 +279,7 @@ const getRecipeItems = (productId, stockKey) => {
 };
 const requireRecipe = product => { const items=getRecipeItems(product.id, product.stock_key); if (!items.length) throw Error(`เมนู ${product.name_th || product.name} ยังไม่มีสูตรชง กรุณาตั้งค่าสูตรก่อนขาย`); return items; };
 
-app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY sort_order,category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), channelPrices:db.prepare('SELECT product_id,channel_key,sale_price FROM channel_prices').all(), optionGroups:getOptionGroups(), bestSellers:db.prepare('SELECT oi.product_id,sum(oi.quantity) qty FROM order_items oi JOIN products p ON p.id=oi.product_id WHERE p.active=1 GROUP BY oi.product_id ORDER BY qty DESC,oi.product_id LIMIT 10').all(), features:Object.fromEntries(db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
+app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY sort_order,category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY sort_order,name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), channelPrices:db.prepare('SELECT product_id,channel_key,sale_price FROM channel_prices').all(), optionGroups:getOptionGroups(), bestSellers:db.prepare('SELECT oi.product_id,sum(oi.quantity) qty FROM order_items oi JOIN products p ON p.id=oi.product_id WHERE p.active=1 GROUP BY oi.product_id ORDER BY qty DESC,oi.product_id LIMIT 10').all(), features:Object.fromEntries(db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
 app.get('/api/pricing', (_,res) => res.json(db.prepare(`SELECT p.id product_id,p.name,p.price store_price,c.channel_key,c.name channel_name,c.gp_percent,cp.sale_price,round(p.price/(1-c.gp_percent/100),2) suggested_price FROM products p CROSS JOIN sales_channels c LEFT JOIN channel_prices cp ON cp.product_id=p.id AND cp.channel_key=c.channel_key WHERE p.active=1 AND c.active=1 ORDER BY p.name,c.name`).all()));
 app.get('/api/costing', (_,res) => {
   const products=db.prepare('SELECT id,name,price,category,target_margin FROM products WHERE active=1 ORDER BY sort_order,category,name').all();
@@ -701,7 +702,15 @@ app.delete('/api/admin/option-groups/:id', admin, (req,res) => {
   const changed=db.transaction(()=>{const result=db.prepare('DELETE FROM option_groups WHERE id=?').run(req.params.id);if(result.changes)syncProductOptionGroup(req.params.id);return result.changes;})();
   return changed?res.json({ok:true}):fail(res,'ไม่พบกลุ่มตัวเลือก',404);
 });
-app.post('/api/admin/categories', admin, (req,res) => { const key=String(req.body?.key||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,''); const name=String(req.body?.name||'').trim(); if(!key||!name)return fail(res,'ระบุรหัสและชื่อหมวดสินค้า'); try{db.prepare('INSERT INTO categories(category_key,name) VALUES (?,?)').run(key,name);res.status(201).json({ok:true})}catch{fail(res,'รหัสหมวดซ้ำ',409)} });
+app.post('/api/admin/categories', admin, (req,res) => { const key=String(req.body?.key||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,''); const name=String(req.body?.name||'').trim(); if(!key||!name)return fail(res,'ระบุรหัสและชื่อหมวดสินค้า'); const nextOrder=Number(db.prepare('SELECT coalesce(max(sort_order),-1)+1 AS n FROM categories').get().n); try{db.prepare('INSERT INTO categories(category_key,name,sort_order) VALUES (?,?,?)').run(key,name,nextOrder);res.status(201).json({ok:true})}catch{fail(res,'รหัสหมวดซ้ำ',409)} });
+app.put('/api/admin/categories/order', admin, (req,res) => {
+  const ids=Array.isArray(req.body?.ids)?req.body.ids.map(String):[];
+  const existing=db.prepare('SELECT category_key FROM categories WHERE active=1').all().map(row=>row.category_key);
+  if(ids.length!==existing.length||new Set(ids).size!==ids.length||existing.some(id=>!ids.includes(id)))return fail(res,'ลำดับหมวดหมู่ไม่ถูกต้อง');
+  const update=db.prepare('UPDATE categories SET sort_order=? WHERE category_key=?');
+  db.transaction(()=>ids.forEach((categoryKey,index)=>update.run(index,categoryKey)))();
+  res.json({ok:true});
+});
 app.put('/api/admin/categories/:key', admin, (req,res) => { const name=String(req.body?.name||'').trim(); if(!name)return fail(res,'ระบุชื่อหมวดสินค้า'); const r=db.prepare('UPDATE categories SET name=? WHERE category_key=?').run(name,req.params.key); return r.changes?res.json({ok:true}):fail(res,'ไม่พบหมวดสินค้า',404); });
 app.delete('/api/admin/categories/:key', admin, (req,res) => { const used=db.prepare('SELECT 1 FROM products WHERE category=? LIMIT 1').get(req.params.key); if(used)return fail(res,'ลบไม่ได้ เพราะยังมีสินค้าในหมวดนี้',409); const r=db.prepare('DELETE FROM categories WHERE category_key=?').run(req.params.key); return r.changes?res.json({ok:true}):fail(res,'ไม่พบหมวดสินค้า',404); });
 app.put('/api/admin/channels/:key', admin, (req,res) => { const gp=Number(req.body?.gpPercent); const active=req.body?.active; if(!Number.isFinite(gp)||gp<0||gp>=100)return fail(res,'GP ต้องอยู่ระหว่าง 0 ถึงน้อยกว่า 100'); const r=db.prepare('UPDATE sales_channels SET gp_percent=?,active=? WHERE channel_key=?').run(gp,active?1:0,req.params.key);return r.changes?res.json({ok:true}):fail(res,'ไม่พบช่องทาง',404); });

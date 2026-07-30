@@ -100,18 +100,18 @@
     const batch=db.batch();let changes=0;
     defaults.categories.forEach(([id,name])=>{
       const existing=byId.get(id);
-      if(!existing){batch.set(db.collection('categories').doc(id),{name,active:true});changes++;return;}
+      if(!existing){batch.set(db.collection('categories').doc(id),{name,active:true,sort_order:defaults.categories.findIndex(item=>item[0]===id)});changes++;return;}
       if(existing.data().active===false){batch.set(existing.ref,{active:true},{merge:true});changes++;}
     });
     if(changes)await batch.commit();
   };
   const effectiveFirebaseCategories = categories => {
-    const byId=new Map(defaults.categories.map(([id,name])=>[id,{id,name,active:true}]));
+    const byId=new Map(defaults.categories.map(([id,name],index)=>[id,{id,name,active:true,sort_order:index}]));
     categories.forEach(category=>{
       const current=byId.get(category.id)||{};
       byId.set(category.id,{...current,...category,active:defaultCategoryKeys.has(category.id)?true:category.active!==false});
     });
-    return [...byId.values()].filter(category=>category.active!==false);
+    return sortBySavedOrder([...byId.values()].filter(category=>category.active!==false));
   };
   const restoreDefaultChannels = async () => {
     const snapshot=await db.collection('channels').get(),byId=new Map(snapshot.docs.map(doc=>[doc.id,doc]));
@@ -251,7 +251,8 @@
     if(path==='admin/members' && method==='GET') return (await docs('members')).map(x=>({phone:x.id,...x})).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
     if(path.match(/^admin\/members\/[^/]+$/) && method==='PUT') { const name=String(data.name||'').trim(),points=Number(data.points);if(!name||!Number.isInteger(points)||points<0)return err('ข้อมูลสมาชิกไม่ถูกต้อง');await db.collection('members').doc(path.split('/')[2]).set({name,points},{merge:true});return {ok:true}; }
     if(path.match(/^admin\/members\/[^/]+$/) && method==='DELETE') { await db.collection('members').doc(path.split('/')[2]).delete();return {ok:true}; }
-    if(path==='admin/categories' && method==='POST') { const key=String(data.key||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,''),name=String(data.name||'').trim();if(!key||!name)return err('กรอกหมวดหมู่ให้ครบ');if((await db.collection('categories').doc(key).get()).exists)return err('รหัสหมวดหมู่ซ้ำ',409);await db.collection('categories').doc(key).set({name,active:true});return {ok:true}; }
+    if(path==='admin/categories' && method==='POST') { const key=String(data.key||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,''),name=String(data.name||'').trim();if(!key||!name)return err('กรอกหมวดหมู่ให้ครบ');if((await db.collection('categories').doc(key).get()).exists)return err('รหัสหมวดหมู่ซ้ำ',409);const categories=await docs('categories'),nextOrder=categories.reduce((max,item)=>Math.max(max,Number(item.sort_order)||0),-1)+1;await db.collection('categories').doc(key).set({name,active:true,sort_order:nextOrder});return {ok:true}; }
+    if(path==='admin/categories/order' && method==='PUT') { const ids=Array.isArray(data.ids)?data.ids.map(String):[],categories=(await docs('categories')).filter(x=>x.active!==false),existing=categories.map(x=>String(x.id));if(ids.length!==existing.length||new Set(ids).size!==ids.length||existing.some(id=>!ids.includes(id)))return err('ลำดับหมวดหมู่ไม่ถูกต้อง');const batch=db.batch();ids.forEach((id,index)=>batch.set(db.collection('categories').doc(id),{sort_order:index},{merge:true}));await batch.commit();return {ok:true}; }
     if(path.match(/^admin\/categories\/[^/]+$/) && method==='PUT') { const name=String(data.name||'').trim();if(!name)return err('กรอกชื่อหมวดหมู่');await db.collection('categories').doc(path.split('/')[2]).set({name},{merge:true});return {ok:true}; }
     if(path.match(/^admin\/categories\/[^/]+$/) && method==='DELETE') { const key=path.split('/')[2],used=(await docs('products')).some(x=>x.category===key);if(used)return err('ลบไม่ได้ เพราะยังมีสินค้าในหมวดนี้',409);await db.collection('categories').doc(key).delete();return {ok:true}; }
     if(path.match(/^admin\/channels\/[^/]+$/) && method==='PUT') { const gp=Number(data.gpPercent);if(!Number.isFinite(gp)||gp<0||gp>=100)return err('GP ต้องอยู่ระหว่าง 0 ถึงน้อยกว่า 100');await db.collection('channels').doc(path.split('/')[2]).set({gp_percent:gp,active:data.active!==false},{merge:true});return {ok:true}; }
