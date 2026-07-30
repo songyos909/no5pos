@@ -171,3 +171,21 @@ test('modifier choices support separate online prices with store-price fallback'
   assert.match(server, /selectedCustomOptions\(product,raw,normalizedSalesChannel==='online'\)/);
   assert.match(firebase, /salesChannel==='online'\?\(selected\.online_price\?\?selected\.price\)/);
 });
+
+test('all-category catalog ranks best sellers by quantity in both backends', async () => {
+  const [app, server, firebase, css] = await Promise.all([
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js'),
+    read('public/styles.css')
+  ]);
+  assert.match(app, /state\.selectedCategory === 'all'/);
+  assert.match(app, /เมนูขายดี เรียงตามจำนวนที่ขายได้/);
+  assert.match(app, /bestsellerRank/);
+  assert.match(app, /ขายดี #/);
+  assert.match(server, /sum\(oi\.quantity\) qty/);
+  assert.match(server, /ORDER BY qty DESC/);
+  assert.match(firebase, /sellerTotals/);
+  assert.match(firebase, /\.sort\(\(a,b\)=>b\.qty-a\.qty/);
+  assert.match(css, /\.bestseller-badge/);
+});

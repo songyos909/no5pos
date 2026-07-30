@@ -15,6 +15,7 @@ let state = {
   channels: [],
   channelPrices: [],
   optionGroups: [],
+  bestSellers: [],
   recipesData: [],
   selectedCategory: 'all',
   selectedStockCategory: 'all', selectedMaterialType: 'all'
@@ -91,6 +92,7 @@ async function load() {
     state.channels = boot.channels || [];
     state.channelPrices = boot.channelPrices || [];
     state.optionGroups = normalizeCustomOptionGroups(boot.optionGroups || []);
+    state.bestSellers = Array.isArray(boot.bestSellers) ? boot.bestSellers : [];
     state.cart = savedCart.flatMap(item => {
       const product=state.products.find(entry=>String(entry.id)===String(item.product?.id));
       if(!product)return [];
@@ -385,7 +387,21 @@ function renderProducts() {
     return;
   }
 
-  items.forEach(p => {
+  const showBestSellers = state.selectedCategory === 'all' && !($('#search')?.value || '').trim();
+  const bestsellerRank = new Map(state.bestSellers.map((item,index)=>[String(item.product_id),{rank:index+1,qty:Number(item.qty)||0}]));
+  const best = showBestSellers
+    ? items.filter(product=>bestsellerRank.has(String(product.id))).sort((a,b)=>bestsellerRank.get(String(a.id)).rank-bestsellerRank.get(String(b.id)).rank)
+    : [];
+  const rest = showBestSellers ? items.filter(product=>!bestsellerRank.has(String(product.id))) : items;
+  const orderedItems = [...best,...rest];
+  if (showBestSellers && best.length) {
+    const heading=document.createElement('div');heading.className='catalog-list-heading bestseller-heading';heading.textContent='🔥 เมนูขายดี เรียงตามจำนวนที่ขายได้';root.append(heading);
+  }
+
+  orderedItems.forEach((p,index) => {
+    if (showBestSellers && rest.length && index === best.length) {
+      const heading=document.createElement('div');heading.className='catalog-list-heading';heading.textContent=best.length?'เมนูอื่น ๆ':'เมนูทั้งหมด';root.append(heading);
+    }
     const wrapper = document.createElement('div');
     wrapper.className = 'product-card-wrapper';
     const status = getStockStatus(p);
@@ -410,6 +426,14 @@ function renderProducts() {
     const price = document.createElement('small');
     price.textContent = money(saleBasePrice(p));
     card.append(visual, name, price);
+
+    const bestseller=bestsellerRank.get(String(p.id));
+    if(showBestSellers && bestseller) {
+      const badge=document.createElement('span');
+      badge.className='bestseller-badge';
+      badge.textContent=`ขายดี #${bestseller.rank} · ${bestseller.qty} ชิ้น`;
+      card.append(badge);
+    }
 
     if (status === 'low') {
       const badge = document.createElement('span');
