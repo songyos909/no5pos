@@ -97,3 +97,46 @@ test('Firebase restores required GP channels without replacing saved GP values',
   assert.match(firebase, /\{active:true\},\{merge:true\}/);
   assert.doesNotMatch(firebase, /existing\.ref,\{gp_percent/);
 });
+
+test('online checkout does not require or store a payment method', async () => {
+  const [html, app, server, firebase] = await Promise.all([
+    read('public/index.html'),
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  assert.match(html, /id="payment-field"/);
+  assert.match(app, /paymentField\.hidden = online/);
+  assert.match(app, /salesChannel === 'online' \? 'online'/);
+  assert.match(app, /paymentType === 'online'/);
+  for (const source of [server, firebase]) {
+    assert.match(source, /normalizedPaymentType|const paymentType=salesChannel==='online'\?'online'/);
+    assert.match(source, /(?:requestedSalesChannel|salesChannel)==='store'&&!\['cash','qr'\]\.includes/);
+  }
+});
+
+test('menu, option group and option choice ordering persist in both backends', async () => {
+  const [app, server, firebase] = await Promise.all([
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  assert.match(app, /admin\/products\/order/);
+  assert.match(app, /admin\/option-groups\/order/);
+  assert.match(app, /moveArrayItem/);
+  assert.match(app, /optionGroupDraft\.choices=moveArrayItem/);
+  assert.match(app, /bindPressDragSort/);
+  assert.match(app, /setPointerCapture/);
+  assert.match(app, /data-sort-handle/);
+  assert.match(app, /แตะค้างแล้วลาก/);
+  assert.match(app, /เลื่อนเมนูขึ้น/);
+  assert.match(app, /เลื่อนตัวเลือกขึ้น/);
+  for (const source of [server, firebase]) {
+    assert.match(source, /sort_order/);
+    assert.match(source, /admin\/products\/order/);
+    assert.match(source, /admin\/option-groups\/order/);
+    assert.match(source, /custom_options/);
+  }
+  assert.match(server, /ORDER BY sort_order,category,name/);
+  assert.match(firebase, /sortBySavedOrder/);
+});

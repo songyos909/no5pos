@@ -144,6 +144,10 @@ function updateOnlineChannelUI() {
   const online = document.querySelector('input[name="sale-channel"]:checked')?.value === 'online';
   const fields = $('#online-channel-fields');
   if (fields) fields.hidden = !online;
+  const paymentField = $('#payment-field');
+  const paymentSelect = $('#payment');
+  if (paymentField) paymentField.hidden = online;
+  if (paymentSelect) paymentSelect.disabled = online;
   const channel = selectedOnlineChannel();
   const summary = $('#online-gp-summary');
   if (!summary) return;
@@ -306,6 +310,7 @@ function normalizeCustomOptionGroups(raw) {
     return value.slice(0, 12).map((group, groupIndex) => ({
       id: String(group.id || `group_${groupIndex}`),
       name: String(group.name || '').trim(),
+      sort_order: Number.isFinite(Number(group.sort_order)) ? Number(group.sort_order) : groupIndex,
       choices: (Array.isArray(group.choices) ? group.choices : []).slice(0, 20).map((choice, choiceIndex) => ({
         id: String(choice.id || `choice_${groupIndex}_${choiceIndex}`),
         label: String(choice.label || '').trim(),
@@ -659,8 +664,8 @@ async function checkout() {
   const manualDisc = Math.min(Number($('#discount')?.value) || 0, subtotal - memberDiscount);
   const disc = memberDiscount + manualDisc;
   const total = subtotal - disc;
-  const payType = $('#payment')?.value || 'cash';
   const salesChannel = document.querySelector('input[name="sale-channel"]:checked')?.value || 'store';
+  const payType = salesChannel === 'online' ? 'online' : ($('#payment')?.value || 'cash');
   const onlineChannel = salesChannel === 'online' ? selectedOnlineChannel() : null;
   const gpPercent = onlineChannel ? Number(onlineChannel.gp_percent || 0) : 0;
   if (salesChannel === 'online' && (!onlineChannel || gpPercent <= 0)) return showNotice('กรุณาตั้งค่า GP จริงของแพลตฟอร์มก่อนขายออนไลน์', 'error');
@@ -769,7 +774,7 @@ function showReceipt(order) {
   set('#receipt-subtotal', money(order.subtotal));
   set('#receipt-discount', money(order.discount));
   set('#receipt-total', money(order.total));
-  set('#receipt-payment', paymentType === 'cash' ? 'เงินสด 💵' : 'สแกน QR 📱');
+  set('#receipt-payment', paymentType === 'online' ? 'ออนไลน์ผ่านแพลตฟอร์ม 🌐' : paymentType === 'cash' ? 'เงินสด 💵' : 'สแกน QR 📱');
   set('#receipt-tx', `บิล: ${order.id} · ${order.salesChannel === 'online' || order.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'}`);
 
   const cashRows = ['#receipt-cash-received-row', '#receipt-cash-change-row'];
@@ -1039,7 +1044,7 @@ if (reportsBtn) {
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
                 <strong style="color:var(--primary);">${money(tx.total)}</strong>
-                <span style="font-size:10px;background:${tx.sales_channel === 'online' ? '#dff2fb' : '#f1ebe5'};padding:2px 6px;border-radius:4px;">${tx.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'} · ${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}</span>
+                <span style="font-size:10px;background:${tx.sales_channel === 'online' ? '#dff2fb' : '#f1ebe5'};padding:2px 6px;border-radius:4px;">${tx.sales_channel === 'online' ? 'ออนไลน์' : `หน้าร้าน · ${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}`}</span>
               </div>`;
             row.onclick = () => { $('#reports-dialog')?.close(); showReceipt({ ...tx, items: tx.items }); };
             txEl.append(row);
@@ -1236,6 +1241,77 @@ function settingRow(label, inputEl) {
   return row;
 }
 
+const moveArrayItem = (items,index,direction) => {
+  const target=index+direction;
+  if(target<0||target>=items.length)return items;
+  const next=[...items];
+  [next[index],next[target]]=[next[target],next[index]];
+  return next;
+};
+function bindPressDragSort(container,rowSelector,onDrop) {
+  if(!container)return;
+  container.querySelectorAll('[data-sort-handle]').forEach(handle=>{
+    handle.onpointerdown=event=>{
+      if(event.button!==0)return;
+      const row=handle.closest(rowSelector);
+      if(!row)return;
+      event.preventDefault();
+      let dragging=false;
+      const activate=setTimeout(()=>{
+        dragging=true;
+        row.classList.add('press-drag-active');
+        container.classList.add('press-drag-sorting');
+        try{handle.setPointerCapture(event.pointerId);}catch{}
+        if(navigator.vibrate)navigator.vibrate(20);
+      },220);
+      const move=moveEvent=>{
+        if(!dragging)return;
+        moveEvent.preventDefault();
+        const siblings=[...container.querySelectorAll(rowSelector)].filter(item=>item!==row);
+        const before=siblings.find(item=>moveEvent.clientY<item.getBoundingClientRect().top+item.getBoundingClientRect().height/2);
+        if(before)container.insertBefore(row,before);else container.append(row);
+      };
+      const finish=async finishEvent=>{
+        clearTimeout(activate);
+        handle.onpointermove=null;handle.onpointerup=null;handle.onpointercancel=null;
+        if(!dragging)return;
+        finishEvent.preventDefault();
+        row.classList.remove('press-drag-active');
+        container.classList.remove('press-drag-sorting');
+        const ids=[...container.querySelectorAll(rowSelector)].map(item=>item.dataset.sortId).filter(Boolean);
+        try{await onDrop(ids);}catch(error){showNotice(error.message,'error');}
+      };
+      handle.onpointermove=move;
+      handle.onpointerup=finish;
+      handle.onpointercancel=finish;
+    };
+  });
+}
+async function persistProductOrder(ids) {
+  await api('/api/admin/products/order',{method:'PUT',body:JSON.stringify({ids})});
+  await load();
+  await adminLoad();
+  showNotice('บันทึกลำดับเมนูแล้ว');
+}
+async function saveProductOrder(products,index,direction) {
+  const ordered=moveArrayItem(products,index,direction);
+  if(ordered===products)return;
+  await persistProductOrder(ordered.map(item=>item.id));
+}
+async function persistOptionGroupOrder(ids) {
+  const editingId=optionGroupEditingId;
+  await api('/api/admin/option-groups/order',{method:'PUT',body:JSON.stringify({ids})});
+  await load();
+  resetOptionGroupEditor(editingId?state.optionGroups.find(item=>item.id===editingId):null);
+  renderCustomOptionEditor();
+  showNotice('บันทึกลำดับกลุ่มตัวเลือกแล้ว');
+}
+async function saveOptionGroupOrder(index,direction) {
+  const ordered=moveArrayItem(state.optionGroups,index,direction);
+  if(ordered===state.optionGroups)return;
+  await persistOptionGroupOrder(ordered.map(item=>item.id));
+}
+
 // ── Admin load ────────────────────────────────────────────────
 async function adminLoad() {
   const boot = await api('/api/bootstrap');
@@ -1283,8 +1359,9 @@ async function adminLoad() {
   const adminProdsEl = $('#admin-products');
   if (adminProdsEl) {
     adminProdsEl.replaceChildren();
-    allProducts.forEach(p => {
+    allProducts.forEach((p,index) => {
       const row = document.createElement('div');
+      row.dataset.sortId=String(p.id);
       row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid #f5f0eb;font-size:13px;';
 
       const info = document.createElement('span');
@@ -1303,9 +1380,16 @@ async function adminLoad() {
       editBtn.onmouseout = () => { editBtn.style.background = '#fff'; editBtn.style.color = 'var(--text-main)'; };
       editBtn.onclick = () => openProductEditor(p);
 
-      row.append(info, editBtn);
+      const actions=document.createElement('span');
+      actions.className='admin-order-actions';
+      const handle=document.createElement('button');handle.type='button';handle.className='press-drag-handle';handle.dataset.sortHandle='';handle.textContent='⠿';handle.title='แตะค้างแล้วลากเพื่อจัดลำดับ';handle.setAttribute('aria-label','ลากจัดลำดับเมนู');
+      const up=document.createElement('button');up.type='button';up.textContent='↑';up.title='เลื่อนเมนูขึ้น';up.disabled=index===0;up.onclick=()=>saveProductOrder(allProducts,index,-1).catch(error=>showNotice(error.message,'error'));
+      const down=document.createElement('button');down.type='button';down.textContent='↓';down.title='เลื่อนเมนูลง';down.disabled=index===allProducts.length-1;down.onclick=()=>saveProductOrder(allProducts,index,1).catch(error=>showNotice(error.message,'error'));
+      actions.append(handle,up,down,editBtn);
+      row.append(info, actions);
       adminProdsEl.append(row);
     });
+    bindPressDragSort(adminProdsEl,'[data-sort-id]',persistProductOrder);
   }
 
   // ⑤ Categories table
@@ -1569,18 +1653,30 @@ function resetOptionGroupEditor(group=null){
 }
 function renderOptionGroupChoices(){
   const root=$('#option-group-choice-editor');if(!root)return;root.replaceChildren();
-  optionGroupDraft.choices.forEach(choice=>{
+  optionGroupDraft.choices.forEach((choice,index)=>{
     const row=document.createElement('div');row.className='custom-choice-row';
+    row.dataset.sortId=String(choice.id);
     const name=document.createElement('input');name.placeholder='ชื่อตัวเลือก เช่น เย็น';name.value=choice.label;name.oninput=()=>{choice.label=name.value;};
     const price=document.createElement('input');price.type='number';price.min='0';price.step='.5';price.placeholder='ราคาเพิ่ม';price.value=choice.price;price.oninput=()=>{choice.price=Math.max(0,Number(price.value)||0);};
     const remove=document.createElement('button');remove.type='button';remove.className='secondary-btn';remove.textContent='×';remove.onclick=()=>{optionGroupDraft.choices=optionGroupDraft.choices.filter(item=>item!==choice);renderOptionGroupChoices();};
-    row.append(name,price,remove);root.append(row);
+    const order=document.createElement('span');order.className='choice-order-actions';
+    const handle=document.createElement('button');handle.type='button';handle.className='press-drag-handle';handle.dataset.sortHandle='';handle.textContent='⠿';handle.title='แตะค้างแล้วลากเพื่อจัดลำดับ';handle.setAttribute('aria-label','ลากจัดลำดับตัวเลือก');
+    const up=document.createElement('button');up.type='button';up.textContent='↑';up.title='เลื่อนตัวเลือกขึ้น';up.disabled=index===0;up.onclick=()=>{optionGroupDraft.choices=moveArrayItem(optionGroupDraft.choices,index,-1);renderOptionGroupChoices();};
+    const down=document.createElement('button');down.type='button';down.textContent='↓';down.title='เลื่อนตัวเลือกลง';down.disabled=index===optionGroupDraft.choices.length-1;down.onclick=()=>{optionGroupDraft.choices=moveArrayItem(optionGroupDraft.choices,index,1);renderOptionGroupChoices();};
+    order.append(handle,up,down);
+    row.append(name,price,order,remove);root.append(row);
+  });
+  bindPressDragSort(root,'.custom-choice-row',ids=>{
+    const positions=new Map(ids.map((id,index)=>[id,index]));
+    optionGroupDraft.choices.sort((a,b)=>(positions.get(String(a.id))??0)-(positions.get(String(b.id))??0));
+    renderOptionGroupChoices();
   });
 }
 function renderOptionLibraryList(){
   const root=$('#option-library-list');if(!root)return;root.replaceChildren();
   if(!state.optionGroups.length){root.innerHTML='<div class="custom-option-empty">ยังไม่มีตัวเลือกเพิ่มเติม</div>';return;}
-  state.optionGroups.forEach(group=>{const button=document.createElement('button');button.type='button';button.className=`option-library-item${group.id===optionGroupEditingId?' selected':''}`;const text=document.createElement('span');const name=document.createElement('strong');name.textContent=group.name;const choices=document.createElement('small');choices.textContent=group.choices.map(item=>item.label).join(' · ');text.append(name,choices);button.append(text);button.onclick=()=>resetOptionGroupEditor(group);root.append(button);});
+  state.optionGroups.forEach((group,index)=>{const row=document.createElement('div');row.className='option-library-order-row';row.dataset.sortId=String(group.id);const button=document.createElement('button');button.type='button';button.className=`option-library-item${group.id===optionGroupEditingId?' selected':''}`;const text=document.createElement('span');const name=document.createElement('strong');name.textContent=group.name;const choices=document.createElement('small');choices.textContent=group.choices.map(item=>item.label).join(' · ');text.append(name,choices);button.append(text);button.onclick=()=>resetOptionGroupEditor(group);const controls=document.createElement('span');controls.className='choice-order-actions';const handle=document.createElement('button');handle.type='button';handle.className='press-drag-handle';handle.dataset.sortHandle='';handle.textContent='⠿';handle.title='แตะค้างแล้วลากเพื่อจัดลำดับ';handle.setAttribute('aria-label','ลากจัดลำดับกลุ่มตัวเลือก');const up=document.createElement('button');up.type='button';up.textContent='↑';up.title='เลื่อนกลุ่มขึ้น';up.disabled=index===0;up.onclick=()=>saveOptionGroupOrder(index,-1).catch(error=>showNotice(error.message,'error'));const down=document.createElement('button');down.type='button';down.textContent='↓';down.title='เลื่อนกลุ่มลง';down.disabled=index===state.optionGroups.length-1;down.onclick=()=>saveOptionGroupOrder(index,1).catch(error=>showNotice(error.message,'error'));controls.append(handle,up,down);row.append(button,controls);root.append(row);});
+  bindPressDragSort(root,'.option-library-order-row',persistOptionGroupOrder);
 }
 function openOptionLibrary(){
   resetOptionGroupEditor();
