@@ -16,7 +16,7 @@ let state = {
   channelPrices: [],
   optionGroups: [],
   bestSellers: [],
-  loyaltySettings: { mode:'category', categoryKeys:['coffee','tea'], productIds:[] },
+  loyaltySettings: { mode:'category', categoryKeys:['coffee','tea'], productIds:[], earnStore:true, earnOnline:true, rewardPoints:10, rewardType:'free_product', rewardMode:'category', rewardCategoryKeys:['coffee','tea'], rewardProductIds:[], rewardDiscountAmount:50, rewardMaxPrice:0 },
   recipesData: [],
   selectedCategory: 'all',
   selectedStockCategory: 'all', selectedMaterialType: 'all'
@@ -336,11 +336,36 @@ function sanitizeCartOptions(product,raw={}) {
   return {custom,custom_labels};
 }
 function normalizeLoyaltySettings(raw={}) {
+  const rewardPoints=Math.min(999,Math.max(1,Math.round(Number(raw?.rewardPoints)||10)));
+  const rewardDiscountAmount=Math.max(1,Number(raw?.rewardDiscountAmount)||50);
+  const rewardMaxPrice=Math.max(0,Number(raw?.rewardMaxPrice)||0);
   return {
     mode:['all','category','product'].includes(raw?.mode)?raw.mode:'category',
     categoryKeys:[...new Set((Array.isArray(raw?.categoryKeys)?raw.categoryKeys:['coffee','tea']).map(String))],
-    productIds:[...new Set((Array.isArray(raw?.productIds)?raw.productIds:[]).map(String))]
+    productIds:[...new Set((Array.isArray(raw?.productIds)?raw.productIds:[]).map(String))],
+    earnStore:raw?.earnStore!==false,
+    earnOnline:raw?.earnOnline!==false,
+    rewardPoints,
+    rewardType:['free_product','fixed_discount'].includes(raw?.rewardType)?raw.rewardType:'free_product',
+    rewardMode:['all','category','product'].includes(raw?.rewardMode)?raw.rewardMode:'category',
+    rewardCategoryKeys:[...new Set((Array.isArray(raw?.rewardCategoryKeys)?raw.rewardCategoryKeys:['coffee','tea']).map(String))],
+    rewardProductIds:[...new Set((Array.isArray(raw?.rewardProductIds)?raw.rewardProductIds:[]).map(String))],
+    rewardDiscountAmount,
+    rewardMaxPrice
   };
+}
+const loyaltyRewardProductEligible=(product,settings=state.loyaltySettings)=>
+  settings.rewardMode==='all'
+  ||(settings.rewardMode==='category'&&settings.rewardCategoryKeys.includes(String(product.category)))
+  ||(settings.rewardMode==='product'&&settings.rewardProductIds.includes(String(product.id)));
+function loyaltyRewardForCart() {
+  const settings=state.loyaltySettings;
+  if(settings.rewardType==='fixed_discount')return {discount:settings.rewardDiscountAmount,label:`ส่วนลด ${money(settings.rewardDiscountAmount)}`};
+  const eligible=state.cart.filter(item=>loyaltyRewardProductEligible(item.product,settings));
+  if(!eligible.length)return {discount:0,label:'สินค้าในรายการรางวัล'};
+  const line=eligible.reduce((best,item)=>(item.unitPrice||item.product.price)<(best.unitPrice||best.product.price)?item:best,eligible[0]);
+  const price=Number(line.unitPrice||line.product.price);
+  return {discount:settings.rewardMaxPrice>0?Math.min(price,settings.rewardMaxPrice):price,label:`ฟรี ${displayName(line.product)}`};
 }
 function modifierExtra(options, product) {
   let extra = 0;
@@ -595,14 +620,12 @@ function renderCart() {
   
   let memberDiscount = 0;
   const useFreeCupEl = $('#member-use-free-cup');
-  if (useFreeCupEl && useFreeCupEl.checked && currentMember && currentMember.points >= 10) {
-    const beverages = state.cart.filter(x => ['coffee','tea'].includes(x.product.category));
-    if (beverages.length > 0) {
-      const cheapest = beverages.reduce((min, x) => (x.unitPrice || x.product.price) < (min.unitPrice || min.product.price) ? x : min, beverages[0]);
-      memberDiscount = cheapest.unitPrice || cheapest.product.price;
-    } else {
+  if (useFreeCupEl && useFreeCupEl.checked && currentMember && currentMember.points >= state.loyaltySettings.rewardPoints) {
+    const reward=loyaltyRewardForCart();
+    memberDiscount=Math.min(subtotal,reward.discount);
+    if(memberDiscount<=0) {
       useFreeCupEl.checked = false;
-      showNotice('ต้องมีเครื่องดื่มในตะกร้าอย่างน้อย 1 แก้ว เพื่อใช้สิทธิ์', 'error');
+      showNotice('ตะกร้ายังไม่มีสินค้าที่ใช้แลกรางวัลได้', 'error');
     }
   }
 
@@ -612,7 +635,7 @@ function renderCart() {
   const totalEl = $('#total');
   if (totalEl) {
     if (memberDiscount > 0) {
-      totalEl.innerHTML = `${money(total)} <small style="font-size:11px;color:#27ae60;display:block;">(รวมส่วนลดแลกฟรี -${money(memberDiscount)})</small>`;
+      totalEl.innerHTML = `${money(total)} <small style="font-size:11px;color:#27ae60;display:block;">(รางวัลสมาชิก -${money(memberDiscount)})</small>`;
     } else {
       totalEl.textContent = money(total);
     }
@@ -665,7 +688,9 @@ async function searchMember() {
     if (regBtn) regBtn.style.display = 'none';
     if (nameInput) nameInput.style.display = 'none';
     currentMember = member;
-    if (member.points >= 10) {
+    const rewardLabel=$('#member-reward-label');
+    if(rewardLabel)rewardLabel.textContent=`🎁 ${state.loyaltySettings.rewardType==='fixed_discount'?`ใช้ส่วนลด ${money(state.loyaltySettings.rewardDiscountAmount)}`:'ใช้สิทธิ์รับสินค้าฟรี'} (ใช้ ${state.loyaltySettings.rewardPoints} แต้ม)`;
+    if (member.points >= state.loyaltySettings.rewardPoints) {
       if (redeemRow) redeemRow.style.display = 'flex';
     }
     renderCart();
@@ -704,12 +729,9 @@ async function checkout() {
   // Calculate member discount
   let memberDiscount = 0;
   const useFreeCupEl = $('#member-use-free-cup');
-  if (useFreeCupEl && useFreeCupEl.checked && currentMember && currentMember.points >= 10) {
-    const beverages = state.cart.filter(x => ['coffee','tea'].includes(x.product.category));
-    if (beverages.length > 0) {
-      const cheapest = beverages.reduce((min, x) => (x.unitPrice || x.product.price) < (min.unitPrice || min.product.price) ? x : min, beverages[0]);
-      memberDiscount = cheapest.unitPrice || cheapest.product.price;
-    }
+  if (useFreeCupEl && useFreeCupEl.checked && currentMember && currentMember.points >= state.loyaltySettings.rewardPoints) {
+    memberDiscount=Math.min(subtotal,loyaltyRewardForCart().discount);
+    if(memberDiscount<=0)return showNotice('ตะกร้ายังไม่มีสินค้าที่ใช้แลกรางวัลได้','error');
   }
 
   const manualDisc = Math.min(Number($('#discount')?.value) || 0, subtotal - memberDiscount);
@@ -2095,9 +2117,10 @@ function openCostInventory(item = null) {
 let loyaltySettingsDraft=null;
 function updateLoyaltySummary() {
   const out=$('#loyalty-settings-summary');if(!out||!loyaltySettingsDraft)return;
-  if(loyaltySettingsDraft.mode==='all')out.textContent='สมาชิกได้รับแต้มจากทุกเมนู';
-  else if(loyaltySettingsDraft.mode==='category')out.textContent=`เลือกแล้ว ${loyaltySettingsDraft.categoryKeys.length} หมวดหมู่`;
-  else out.textContent=`เลือกแล้ว ${loyaltySettingsDraft.productIds.length} เมนู`;
+  const earn=loyaltySettingsDraft.mode==='all'?'ทุกเมนู':loyaltySettingsDraft.mode==='category'?`${loyaltySettingsDraft.categoryKeys.length} หมวดหมู่`:`${loyaltySettingsDraft.productIds.length} เมนู`;
+  const channels=[loyaltySettingsDraft.earnStore?'หน้าร้าน':'',loyaltySettingsDraft.earnOnline?'ออนไลน์':''].filter(Boolean).join(' และ ');
+  const reward=loyaltySettingsDraft.rewardType==='fixed_discount'?`ส่วนลด ${money(loyaltySettingsDraft.rewardDiscountAmount)}`:'สินค้าฟรี 1 รายการ';
+  out.textContent=`สะสมจาก ${earn} (${channels||'ยังไม่เลือกช่องทาง'}) · ใช้ ${loyaltySettingsDraft.rewardPoints} แต้ม แลก${reward}`;
 }
 function renderLoyaltyProductChoices() {
   const root=$('#loyalty-product-list');if(!root||!loyaltySettingsDraft)return;root.replaceChildren();
@@ -2110,10 +2133,28 @@ function renderLoyaltyProductChoices() {
     label.append(input,text);root.append(label);
   });
 }
+function renderLoyaltyRewardProductChoices() {
+  const root=$('#loyalty-reward-product-list');if(!root||!loyaltySettingsDraft)return;root.replaceChildren();
+  const query=($('#loyalty-reward-product-search')?.value||'').trim().toLowerCase();
+  state.products.filter(product=>!query||product.name.toLowerCase().includes(query)).forEach(product=>{
+    const label=document.createElement('label'),input=document.createElement('input'),text=document.createElement('span');
+    input.type='checkbox';input.value=String(product.id);input.checked=loyaltySettingsDraft.rewardProductIds.includes(String(product.id));
+    text.textContent=`${product.emoji||'🍽️'} ${product.name}`;
+    input.onchange=()=>{loyaltySettingsDraft.rewardProductIds=input.checked?[...new Set([...loyaltySettingsDraft.rewardProductIds,String(product.id)])]:loyaltySettingsDraft.rewardProductIds.filter(id=>id!==String(product.id));updateLoyaltySummary();};
+    label.append(input,text);root.append(label);
+  });
+}
 function renderLoyaltySettingsPickers() {
   const mode=loyaltySettingsDraft?.mode||'all';
+  const rewardMode=loyaltySettingsDraft?.rewardMode||'category';
+  const freeProduct=loyaltySettingsDraft?.rewardType==='free_product';
   if($('#loyalty-category-picker'))$('#loyalty-category-picker').hidden=mode!=='category';
   if($('#loyalty-product-picker'))$('#loyalty-product-picker').hidden=mode!=='product';
+  if($('#loyalty-reward-product-config'))$('#loyalty-reward-product-config').hidden=!freeProduct;
+  if($('#loyalty-reward-category-picker'))$('#loyalty-reward-category-picker').hidden=!freeProduct||rewardMode!=='category';
+  if($('#loyalty-reward-product-picker'))$('#loyalty-reward-product-picker').hidden=!freeProduct||rewardMode!=='product';
+  if($('#loyalty-discount-amount-wrap'))$('#loyalty-discount-amount-wrap').hidden=freeProduct;
+  if($('#loyalty-max-price-wrap'))$('#loyalty-max-price-wrap').hidden=!freeProduct;
   updateLoyaltySummary();
 }
 function renderLoyaltySettings() {
@@ -2126,13 +2167,28 @@ function renderLoyaltySettings() {
   const categoryRoot=$('#loyalty-category-list');
   if(categoryRoot){categoryRoot.replaceChildren();state.categories.forEach(category=>{const label=document.createElement('label');const input=document.createElement('input');input.type='checkbox';input.value=String(category.category_key);input.checked=loyaltySettingsDraft.categoryKeys.includes(String(category.category_key));const text=document.createElement('span');text.textContent=category.name;input.onchange=()=>{loyaltySettingsDraft.categoryKeys=input.checked?[...new Set([...loyaltySettingsDraft.categoryKeys,String(category.category_key)])]:loyaltySettingsDraft.categoryKeys.filter(key=>key!==String(category.category_key));updateLoyaltySummary();};label.append(input,text);categoryRoot.append(label);});}
   const search=$('#loyalty-product-search');if(search){search.value='';search.oninput=renderLoyaltyProductChoices;}
+  document.querySelectorAll('input[name="loyalty-reward-mode"]').forEach(input=>{input.checked=input.value===loyaltySettingsDraft.rewardMode;input.onchange=()=>{if(input.checked){loyaltySettingsDraft.rewardMode=input.value;renderLoyaltySettingsPickers();}};});
+  const rewardCategoryRoot=$('#loyalty-reward-category-list');
+  if(rewardCategoryRoot){rewardCategoryRoot.replaceChildren();state.categories.forEach(category=>{const label=document.createElement('label'),input=document.createElement('input'),text=document.createElement('span');input.type='checkbox';input.value=String(category.category_key);input.checked=loyaltySettingsDraft.rewardCategoryKeys.includes(String(category.category_key));text.textContent=category.name;input.onchange=()=>{loyaltySettingsDraft.rewardCategoryKeys=input.checked?[...new Set([...loyaltySettingsDraft.rewardCategoryKeys,String(category.category_key)])]:loyaltySettingsDraft.rewardCategoryKeys.filter(key=>key!==String(category.category_key));updateLoyaltySummary();};label.append(input,text);rewardCategoryRoot.append(label);});}
+  const rewardSearch=$('#loyalty-reward-product-search');if(rewardSearch){rewardSearch.value='';rewardSearch.oninput=renderLoyaltyRewardProductChoices;}
+  const bindValue=(selector,value,parse)=>{const el=$(selector);if(!el)return;el.value=value;el.onchange=()=>{loyaltySettingsDraft[parse.key]=parse.value(el.value);renderLoyaltySettingsPickers();};};
+  bindValue('#loyalty-reward-points',loyaltySettingsDraft.rewardPoints,{key:'rewardPoints',value:value=>Math.min(999,Math.max(1,Math.round(Number(value)||10)))});
+  bindValue('#loyalty-reward-type',loyaltySettingsDraft.rewardType,{key:'rewardType',value:value=>value});
+  bindValue('#loyalty-discount-amount',loyaltySettingsDraft.rewardDiscountAmount,{key:'rewardDiscountAmount',value:value=>Math.max(1,Number(value)||1)});
+  bindValue('#loyalty-reward-max-price',loyaltySettingsDraft.rewardMaxPrice,{key:'rewardMaxPrice',value:value=>Math.max(0,Number(value)||0)});
+  const earnStore=$('#loyalty-earn-store');if(earnStore){earnStore.checked=loyaltySettingsDraft.earnStore;earnStore.onchange=()=>{loyaltySettingsDraft.earnStore=earnStore.checked;updateLoyaltySummary();};}
+  const earnOnline=$('#loyalty-earn-online');if(earnOnline){earnOnline.checked=loyaltySettingsDraft.earnOnline;earnOnline.onchange=()=>{loyaltySettingsDraft.earnOnline=earnOnline.checked;updateLoyaltySummary();};}
   renderLoyaltyProductChoices();
+  renderLoyaltyRewardProductChoices();
   renderLoyaltySettingsPickers();
 }
 $('#btn-save-loyalty-settings') && ($('#btn-save-loyalty-settings').onclick=async()=>{
   if(!loyaltySettingsDraft)return;
   if(loyaltySettingsDraft.mode==='category'&&!loyaltySettingsDraft.categoryKeys.length)return showNotice('เลือกหมวดหมู่ที่ให้แต้มอย่างน้อย 1 หมวด','error');
   if(loyaltySettingsDraft.mode==='product'&&!loyaltySettingsDraft.productIds.length)return showNotice('เลือกเมนูที่ให้แต้มอย่างน้อย 1 รายการ','error');
+  if(!loyaltySettingsDraft.earnStore&&!loyaltySettingsDraft.earnOnline)return showNotice('เลือกช่องทางสะสมแต้มอย่างน้อย 1 ช่องทาง','error');
+  if(loyaltySettingsDraft.rewardType==='free_product'&&loyaltySettingsDraft.rewardMode==='category'&&!loyaltySettingsDraft.rewardCategoryKeys.length)return showNotice('เลือกหมวดหมู่รางวัลอย่างน้อย 1 หมวด','error');
+  if(loyaltySettingsDraft.rewardType==='free_product'&&loyaltySettingsDraft.rewardMode==='product'&&!loyaltySettingsDraft.rewardProductIds.length)return showNotice('เลือกเมนูรางวัลอย่างน้อย 1 รายการ','error');
   try{
     const result=await api('/api/admin/loyalty-settings',{method:'PUT',body:JSON.stringify(loyaltySettingsDraft)});
     state.loyaltySettings=normalizeLoyaltySettings(result.loyaltySettings||loyaltySettingsDraft);

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260730-22">
+  <link rel="stylesheet" href="./styles.css?v=20260730-23">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -22,6 +22,10 @@
     .loyalty-check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:7px;margin-top:9px;max-height:260px;overflow:auto}
     .loyalty-search{display:grid;grid-template-columns:auto minmax(160px,1fr);align-items:center;gap:10px;margin-top:10px}.loyalty-search input{min-height:40px}
     .loyalty-settings-summary{display:block;margin-top:10px;color:#8a5a2b;font-weight:700;font-size:12px}
+    .loyalty-reward-config{margin-top:16px;padding-top:15px;border-top:1px solid #ead7c8}.loyalty-reward-config h4{margin:0 0 12px}
+    .loyalty-form-grid{display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:10px}.loyalty-form-grid label{display:grid;gap:5px;font-size:12px;font-weight:700}
+    .loyalty-form-grid input,.loyalty-form-grid select{min-height:42px}.loyalty-channel-options{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:13px 0}
+    .loyalty-channel-options label{display:flex;align-items:center;gap:6px}.loyalty-channel-options input{width:auto;margin:0;accent-color:var(--primary)}
     @media (min-width:801px) and (max-width:1180px){
       .workspace{grid-template-columns:minmax(0,1fr) 340px!important;gap:16px;padding:18px 16px 28px}
       .catalog,.cart{padding:18px}.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
@@ -51,7 +55,7 @@
     @media (max-width:430px){
       .brand small,.section-heading .eyebrow{display:none}.category-toolbar{align-items:stretch;flex-direction:column}
       .category-toolbar .catalog-add-btn{width:100%}
-      .loyalty-settings-heading{flex-direction:column}.loyalty-settings-heading button{width:100%}
+      .loyalty-settings-heading{flex-direction:column}.loyalty-settings-heading button{width:100%}.loyalty-form-grid{grid-template-columns:1fr}
       .loyalty-mode-options{grid-template-columns:1fr}.loyalty-check-grid{grid-template-columns:1fr}.loyalty-search{grid-template-columns:1fr}
     }
   </style>
@@ -148,8 +152,8 @@
         <input id="quick-member-name" placeholder="กรอกชื่อสมาชิกใหม่" style="display:none;margin-top:8px;width:100%;">
         <div id="member-redeem-row" style="display:none; margin-top:10px; background:#faf8f5; border:1px solid #f1e7de; padding:8px 12px; border-radius:8px; align-items:center; gap:8px;">
           <input type="checkbox" id="member-use-free-cup" style="width:auto; margin:0; cursor:pointer;">
-          <label for="member-use-free-cup" style="margin:0; font-size:12.5px; font-weight:600; color:#8c5d43; cursor:pointer;">
-            🎁 ใช้สิทธิ์แลกฟรี 1 แก้ว (ใช้ 10 แต้ม)
+          <label id="member-reward-label" for="member-use-free-cup" style="margin:0; font-size:12.5px; font-weight:600; color:#8c5d43; cursor:pointer;">
+            🎁 ใช้สิทธิ์รางวัลสมาชิก
           </label>
         </div>
       </div>
@@ -335,6 +339,41 @@
                 <strong>เมนูที่ได้รับแต้ม</strong>
                 <label class="loyalty-search">ค้นหาเมนู<input id="loyalty-product-search" placeholder="พิมพ์ชื่อเมนู"></label>
                 <div id="loyalty-product-list" class="loyalty-check-grid loyalty-product-grid"></div>
+              </div>
+              <div class="loyalty-reward-config">
+                <h4>🎁 กำหนดรางวัลสมาชิก</h4>
+                <div class="loyalty-form-grid">
+                  <label>จำนวนแต้มที่ใช้<input id="loyalty-reward-points" type="number" min="1" max="999" step="1"></label>
+                  <label>ประเภทรางวัล
+                    <select id="loyalty-reward-type">
+                      <option value="free_product">ฟรีสินค้า 1 รายการ</option>
+                      <option value="fixed_discount">ส่วนลดตามจำนวนเงิน</option>
+                    </select>
+                  </label>
+                  <label id="loyalty-discount-amount-wrap">จำนวนส่วนลด (บาท)<input id="loyalty-discount-amount" type="number" min="1" step="1"></label>
+                  <label id="loyalty-max-price-wrap">มูลค่าฟรีสูงสุด (บาท)<input id="loyalty-reward-max-price" type="number" min="0" step="1" placeholder="0 = ไม่จำกัด"></label>
+                </div>
+                <div class="loyalty-channel-options">
+                  <strong>ช่องทางที่ได้รับแต้ม</strong>
+                  <label><input id="loyalty-earn-store" type="checkbox"> หน้าร้าน</label>
+                  <label><input id="loyalty-earn-online" type="checkbox"> ออนไลน์</label>
+                </div>
+                <div id="loyalty-reward-product-config">
+                  <div class="loyalty-mode-options">
+                    <label><input type="radio" name="loyalty-reward-mode" value="all"> รางวัลจากทุกเมนู</label>
+                    <label><input type="radio" name="loyalty-reward-mode" value="category"> เลือกหมวดหมู่รางวัล</label>
+                    <label><input type="radio" name="loyalty-reward-mode" value="product"> เลือกรายเมนูรางวัล</label>
+                  </div>
+                  <div id="loyalty-reward-category-picker" class="loyalty-picker" hidden>
+                    <strong>หมวดหมู่ที่ใช้แลกรางวัลได้</strong>
+                    <div id="loyalty-reward-category-list" class="loyalty-check-grid"></div>
+                  </div>
+                  <div id="loyalty-reward-product-picker" class="loyalty-picker" hidden>
+                    <strong>เมนูที่ใช้แลกรางวัลได้</strong>
+                    <label class="loyalty-search">ค้นหาเมนู<input id="loyalty-reward-product-search" placeholder="พิมพ์ชื่อเมนู"></label>
+                    <div id="loyalty-reward-product-list" class="loyalty-check-grid"></div>
+                  </div>
+                </div>
               </div>
               <output id="loyalty-settings-summary" class="loyalty-settings-summary"></output>
             </section>
@@ -784,7 +823,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260730-22"></script>
-  <script src="./app.js?v=20260730-22"></script>
+  <script src="./firebase-client.js?v=20260730-23"></script>
+  <script src="./app.js?v=20260730-23"></script>
 </body>
 </html>
