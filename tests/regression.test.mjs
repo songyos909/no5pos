@@ -231,6 +231,10 @@ test('responsive POS has desktop, tablet and mobile cart layouts', async () => {
   assert.match(css, /\.mobile-cart-toggle/);
   assert.match(css, /100dvh/);
   assert.match(css, /repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(css, /#settings #admin:not\(\[hidden\]\)/);
+  assert.match(css, /#settings \.admin-tab-content[\s\S]*overflow-y:auto/);
+  assert.match(css, /touch-action:pan-y/);
+  assert.match(css, /#tab-members \.loyalty-settings-heading[\s\S]*position:sticky/);
 });
 
 test('loyalty points can be configured for all, category or individual products', async () => {
