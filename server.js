@@ -227,7 +227,10 @@ const normalizeLoyaltySettings = raw => {
   const mode=['all','category','product'].includes(raw?.mode)?raw.mode:'category';
   const categoryKeys=[...new Set((Array.isArray(raw?.categoryKeys)?raw.categoryKeys:['coffee','tea']).map(String).filter(Boolean))].slice(0,100);
   const productIds=[...new Set((Array.isArray(raw?.productIds)?raw.productIds:[]).map(String).filter(Boolean))].slice(0,500);
-  return {mode,categoryKeys,productIds};
+  const rewardMode=['all','category','product'].includes(raw?.rewardMode)?raw.rewardMode:'category';
+  const rewardCategoryKeys=[...new Set((Array.isArray(raw?.rewardCategoryKeys)?raw.rewardCategoryKeys:['coffee','tea']).map(String).filter(Boolean))].slice(0,100);
+  const rewardProductIds=[...new Set((Array.isArray(raw?.rewardProductIds)?raw.rewardProductIds:[]).map(String).filter(Boolean))].slice(0,500);
+  return {mode,categoryKeys,productIds,earnStore:raw?.earnStore!==false,earnOnline:raw?.earnOnline!==false,rewardPoints:Math.min(999,Math.max(1,Math.round(Number(raw?.rewardPoints)||10))),rewardType:['free_product','fixed_discount'].includes(raw?.rewardType)?raw.rewardType:'free_product',rewardMode,rewardCategoryKeys,rewardProductIds,rewardDiscountAmount:Math.max(1,Number(raw?.rewardDiscountAmount)||50),rewardMaxPrice:Math.max(0,Number(raw?.rewardMaxPrice)||0)};
 };
 const getLoyaltySettings = () => {
   const row=db.prepare("SELECT value FROM app_metadata WHERE key='loyalty_settings'").get();
@@ -237,6 +240,10 @@ const loyaltyProductEligible = (product,settings=getLoyaltySettings()) =>
   settings.mode==='all'
   || (settings.mode==='category'&&settings.categoryKeys.includes(String(product.category)))
   || (settings.mode==='product'&&settings.productIds.includes(String(product.id)));
+const loyaltyRewardProductEligible = (product,settings=getLoyaltySettings()) =>
+  settings.rewardMode==='all'
+  || (settings.rewardMode==='category'&&settings.rewardCategoryKeys.includes(String(product.category)))
+  || (settings.rewardMode==='product'&&settings.rewardProductIds.includes(String(product.id)));
 const normalizeCustomOptions = raw => (Array.isArray(raw) ? raw : []).slice(0,12).map((group,index) => ({
   id:String(group?.id||`group_${index+1}`).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40)||`group_${index+1}`,
   name:String(group?.name||'').trim().slice(0,80),
@@ -359,11 +366,13 @@ app.post('/api/orders', (req,res) => {
         subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
       }
       const member=memberPhone&&enabled('members')?db.prepare('SELECT points FROM members WHERE phone=?').get(memberPhone):null;
-      const beverageLines=lines.filter(line=>['coffee','tea'].includes(line.product.category));
-      if(redeemFreeCup&&(!member||Number(member.points)<10)) throw Error('คะแนนไม่เพียงพอสำหรับแลกแก้วฟรี');
-      if(redeemFreeCup&&!beverageLines.length) throw Error('ต้องมีเครื่องดื่มอย่างน้อย 1 แก้วเพื่อใช้สิทธิ์');
-      const rewardLine=redeemFreeCup?beverageLines.reduce((best,line)=>!best||line.unitPrice<best.unitPrice?line:best,null):null;
-      const rewardDiscount=rewardLine?.unitPrice||0;
+      const loyaltySettings=getLoyaltySettings();
+      const rewardLines=loyaltySettings.rewardType==='free_product'?lines.filter(line=>loyaltyRewardProductEligible(line.product,loyaltySettings)):[];
+      if(redeemFreeCup&&(!member||Number(member.points)<loyaltySettings.rewardPoints)) throw Error(`คะแนนสะสมไม่เพียงพอ ต้องใช้ ${loyaltySettings.rewardPoints} แต้ม`);
+      if(redeemFreeCup&&loyaltySettings.rewardType==='free_product'&&!rewardLines.length) throw Error('ตะกร้ายังไม่มีสินค้าที่ใช้แลกรางวัลได้');
+      const rewardLine=redeemFreeCup&&rewardLines.length?rewardLines.reduce((best,line)=>!best||line.unitPrice<best.unitPrice?line:best,null):null;
+      const freeProductDiscount=rewardLine?(loyaltySettings.rewardMaxPrice>0?Math.min(rewardLine.unitPrice,loyaltySettings.rewardMaxPrice):rewardLine.unitPrice):0;
+      const rewardDiscount=redeemFreeCup?(loyaltySettings.rewardType==='fixed_discount'?loyaltySettings.rewardDiscountAmount:freeProductDiscount):0;
       const effectiveManual=manualDiscount==null&&redeemFreeCup?Math.max(0,requestedDiscount-rewardDiscount):requestedDiscount;
       const finalDiscount=Math.min(effectiveManual+rewardDiscount,subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
       for(const {product,qty} of lines) if(product.deduct_stock) for(const item of requireRecipe(product)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
@@ -376,11 +385,11 @@ app.post('/api/orders', (req,res) => {
       
       let memberPoints = 0, pointsEarned = 0;
       if(member) {
-          const loyaltySettings=getLoyaltySettings();
-          let cupsEarned = lines.filter(line=>loyaltyProductEligible(line.product,loyaltySettings)).reduce((sum,line)=>sum+line.qty,0);
+          const channelCanEarn=normalizedSalesChannel==='online'?loyaltySettings.earnOnline:loyaltySettings.earnStore;
+          let cupsEarned = channelCanEarn?lines.filter(line=>loyaltyProductEligible(line.product,loyaltySettings)).reduce((sum,line)=>sum+line.qty,0):0;
           let newPoints = member.points;
           if (redeemFreeCup) {
-            newPoints -= 10;
+            newPoints -= loyaltySettings.rewardPoints;
             if(rewardLine&&loyaltyProductEligible(rewardLine.product,loyaltySettings))cupsEarned=Math.max(0,cupsEarned-1);
           }
           newPoints += cupsEarned;
@@ -589,6 +598,9 @@ app.put('/api/admin/loyalty-settings', admin, (req,res) => {
   const settings=normalizeLoyaltySettings(req.body||{});
   if(settings.mode==='category'&&!settings.categoryKeys.length)return fail(res,'เลือกหมวดหมู่ที่ให้แต้มอย่างน้อย 1 หมวด');
   if(settings.mode==='product'&&!settings.productIds.length)return fail(res,'เลือกเมนูที่ให้แต้มอย่างน้อย 1 รายการ');
+  if(!settings.earnStore&&!settings.earnOnline)return fail(res,'เลือกช่องทางสะสมแต้มอย่างน้อย 1 ช่องทาง');
+  if(settings.rewardType==='free_product'&&settings.rewardMode==='category'&&!settings.rewardCategoryKeys.length)return fail(res,'เลือกหมวดหมู่รางวัลอย่างน้อย 1 หมวด');
+  if(settings.rewardType==='free_product'&&settings.rewardMode==='product'&&!settings.rewardProductIds.length)return fail(res,'เลือกเมนูรางวัลอย่างน้อย 1 รายการ');
   db.prepare("INSERT INTO app_metadata(key,value) VALUES ('loyalty_settings',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(settings));
   res.json({ok:true,loyaltySettings:settings});
 });
