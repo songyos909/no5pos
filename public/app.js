@@ -102,8 +102,12 @@ async function load() {
       return [{...item,product,options,key:`${product.id}:${JSON.stringify(options)}`}];
     });
     renderOnlineChannelOptions();
-    state.selectedCategory = savedCategory;
+    state.selectedCategory = savedCategory === 'all'
+      || state.categories.some(category => String(category.category_key) === String(savedCategory))
+      ? savedCategory
+      : 'all';
     state.selectedStockCategory = savedStockCat;
+    syncProductCategoryOptions();
 
     // Fetch recipes only if feature enabled (fallback to empty on 403)
     try {
@@ -284,6 +288,33 @@ function renderCategoryTabs() {
     btn.onclick = () => { state.selectedCategory = c.category_key; renderProducts(); };
     return btn;
   }));
+}
+
+function syncProductCategoryOptions(preferredCategory = '') {
+  const select = $('#edit-prod-category');
+  if (!select) return;
+
+  const previousValue = String(preferredCategory || select.value || '');
+  const categories = Array.isArray(state.categories) ? state.categories : [];
+  const options = categories.map(category => new Option(
+    displayName(category) || String(category.category_key),
+    String(category.category_key)
+  ));
+  const hasPreviousCategory = previousValue
+    && categories.some(category => String(category.category_key) === previousValue);
+
+  if (previousValue && !hasPreviousCategory) {
+    options.push(new Option(`${previousValue} (หมวดหมู่เดิม)`, previousValue));
+  }
+  if (!options.length) {
+    options.push(new Option('ยังไม่มีหมวดหมู่ — กรุณาสร้างหมวดหมู่ก่อน', ''));
+  }
+
+  select.replaceChildren(...options);
+  select.disabled = categories.length === 0 && !previousValue;
+  select.value = previousValue && (hasPreviousCategory || options.some(option => option.value === previousValue))
+    ? previousValue
+    : String(categories[0]?.category_key || '');
 }
 
 function getStockStatus(product) {
@@ -1432,11 +1463,8 @@ async function adminLoad() {
     }));
   }
 
-  // ② Populate category select dropdowns in product editor
-  const editCatSel = $('#edit-prod-category');
-  if (editCatSel) {
-    editCatSel.replaceChildren(...boot.categories.map(c => new Option(c.name, c.category_key)));
-  }
+  // ② Keep product-editor categories in sync regardless of how the editor was opened.
+  syncProductCategoryOptions();
 
   // ③ Products list in admin
   const [allProducts, costingRows] = await Promise.all([api('/api/admin/products'), api('/api/costing')]);
@@ -1802,6 +1830,7 @@ async function openProductEditor(product) {
   } : null;
   $('#settings')?.close();
   uploadedProductImageData = product?.image_data || null;
+  syncProductCategoryOptions(product?.category);
   if ($('#edit-prod-image-upload')) $('#edit-prod-image-upload').value = '';
   if ($('#edit-prod-image-upload-status')) $('#edit-prod-image-upload-status').textContent = uploadedProductImageData ? '✓ ใช้รูปที่อัปโหลดไว้' : 'รองรับ JPG, PNG และ WebP ระบบจะย่อรูปให้อัตโนมัติ';
 
