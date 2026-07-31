@@ -68,6 +68,16 @@ function showNotice(msg, type = 'success') {
   el._timer = setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
 }
 
+function setSystemStatus(mode, message) {
+  const status = $('#system-status');
+  if (!status) return;
+  status.classList.remove('is-connecting', 'is-error');
+  if (mode === 'connecting') status.classList.add('is-connecting');
+  if (mode === 'error') status.classList.add('is-error');
+  const label = status.querySelector('span');
+  if (label) label.textContent = message;
+}
+
 async function api(url, opts = {}) {
   if (window.useFirebaseStore) return window.firebaseApi(url, opts);
   const headers = { 'Content-Type': 'application/json' };
@@ -80,6 +90,7 @@ async function api(url, opts = {}) {
 
 // ── Bootstrap / Load ─────────────────────────────────────────
 async function load() {
+  setSystemStatus('connecting', window.useFirebaseStore ? 'กำลังเชื่อมต่อ Firebase' : 'กำลังโหลดข้อมูล');
   const savedCart = state.cart;
   const savedCategory = state.selectedCategory;
   const savedStockCat = state.selectedStockCategory;
@@ -129,7 +140,9 @@ async function load() {
     if ($('#online-orders')) $('#online-orders').textContent = `${todayStats.onlineOrders || 0} บิล`;
 
     await renderQuickBrewQueue();
+    setSystemStatus('ready', 'พร้อมขาย');
   } catch (e) {
+    setSystemStatus('error', 'เชื่อมต่อไม่สำเร็จ');
     showNotice(e.message, 'error');
   }
 }
@@ -1140,7 +1153,13 @@ if (reportsBtn) {
             row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:8px 10px;border:1px solid #f1e7de;border-radius:8px;background:#fff;cursor:pointer;transition:border-color 0.2s;';
             row.onmouseover = () => row.style.borderColor = 'var(--accent)';
             row.onmouseout = () => row.style.borderColor = '#f1e7de';
-            const time = new Date(tx.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+            const time = new Date(tx.created_at).toLocaleString('th-TH', {
+              year: '2-digit',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
             const itemSummary = (tx.items || []).map(x => `${x.name}×${x.quantity}`).join(', ');
             row.innerHTML = `
               <div>
@@ -1239,17 +1258,20 @@ function renderInventoryList() {
     actions.style.cssText = 'display:flex; gap:4px; align-items:center;';
 
     const adjustBtn = document.createElement('button');
+    adjustBtn.type = 'button';
     adjustBtn.textContent = '⊕ ปรับสต็อก';
     adjustBtn.className = 'primary-btn';
     adjustBtn.style.fontSize = '11px';
     adjustBtn.onclick = () => openStockAdjustDialog(x);
 
     const editBtn = document.createElement('button');
+    editBtn.type = 'button';
     editBtn.textContent = '✏️ แก้ไข';
     editBtn.style.cssText = 'font-size:11px;';
     editBtn.onclick = () => openCostInventory(x);
 
     const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
     deleteBtn.textContent = '🗑️';
     deleteBtn.style.cssText = 'font-size:11px; color:#b42318; background:#f8d7da; border:1px solid #f5c6cb;';
     deleteBtn.onclick = () => deleteInventoryItem(x);
@@ -1487,6 +1509,7 @@ async function adminLoad() {
       info.append(costInfo);
 
       const editBtn = document.createElement('button');
+      editBtn.type = 'button';
       editBtn.textContent = '✏️ แก้ไข';
       editBtn.style.cssText = 'border:1px solid #dfcec0;background:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;font-family:inherit;transition:all 0.15s;';
       editBtn.onmouseover = () => { editBtn.style.background = 'var(--primary)'; editBtn.style.color = '#fff'; };
@@ -1516,6 +1539,7 @@ async function adminLoad() {
       const gpInput = Object.assign(document.createElement('input'), { type: 'number', min: 0, max: 99.99, step: 0.01, value: ch.gp_percent });
       gpInput.style.cssText = 'width:80px;padding:6px;font-size:12px;';
       const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
       saveBtn.textContent = 'บันทึก';
       saveBtn.onclick = async () => {
         try {
@@ -1558,7 +1582,7 @@ function renderCategoriesTable() {
         ${state.categories.map((c,index) => `
           <tr data-sort-id="${escapeHtml(c.category_key)}" style="border-bottom:1px solid #faf6f2;">
             <td style="padding:8px;font-family:Courier,monospace;font-weight:600;">${escapeHtml(c.category_key)}</td>
-            <td style="padding:8px;">${escapeHtml(c.name)}</td><td class="category-order-actions" style="padding:5px;white-space:nowrap;"><button type="button" class="press-drag-handle" data-sort-handle title="แตะค้างแล้วลากจัดลำดับ" aria-label="ลากจัดลำดับหมวดหมู่">⠿</button> <button type="button" data-category-up="${escapeHtml(c.category_key)}" ${index===0?'disabled':''} title="เลื่อนขึ้น">↑</button> <button type="button" data-category-down="${escapeHtml(c.category_key)}" ${index===state.categories.length-1?'disabled':''} title="เลื่อนลง">↓</button> <button data-edit-category="${escapeHtml(c.category_key)}">✏️</button> <button data-delete-category="${escapeHtml(c.category_key)}">🗑️</button></td>
+            <td style="padding:8px;">${escapeHtml(c.name)}</td><td class="category-order-actions" style="padding:5px;white-space:nowrap;"><button type="button" class="press-drag-handle" data-sort-handle title="แตะค้างแล้วลากจัดลำดับ" aria-label="ลากจัดลำดับหมวดหมู่">⠿</button> <button type="button" data-category-up="${escapeHtml(c.category_key)}" ${index===0?'disabled':''} title="เลื่อนขึ้น">↑</button> <button type="button" data-category-down="${escapeHtml(c.category_key)}" ${index===state.categories.length-1?'disabled':''} title="เลื่อนลง">↓</button> <button type="button" data-edit-category="${escapeHtml(c.category_key)}" aria-label="แก้ไขหมวดหมู่ ${escapeHtml(c.name)}">✏️</button> <button type="button" data-delete-category="${escapeHtml(c.category_key)}" aria-label="ลบหมวดหมู่ ${escapeHtml(c.name)}">🗑️</button></td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1944,19 +1968,6 @@ document.querySelectorAll('#product-edit-dialog .close').forEach(b => { b.onclic
 
 let recipeSelectorDraft = [];
 function setRecipeSelectorItem(stockKey, quantity) { const idx=recipeSelectorDraft.findIndex(x=>x.stock_key===stockKey); if(quantity>0){if(idx>=0)recipeSelectorDraft[idx].quantity=quantity;else recipeSelectorDraft.push({stock_key:stockKey,quantity});}else if(idx>=0)recipeSelectorDraft.splice(idx,1); }
-function legacyRenderRecipeSelector() {
-  const root=$('#recipe-selector-list'); if(!root)return; root.replaceChildren();
-  const filter=$('#recipe-material-filter')?.value||'all',materialLabels={coffee_beans:'เมล็ดกาแฟ',cocoa:'โกโก้',tea:'ชา',milk:'นม',sweetness:'ความหวาน',syrup:'ไซรัป',other:'อื่น ๆ',equipment:'อุปกรณ์ / บรรจุภัณฑ์'};
-  Object.entries(materialLabels).filter(([type])=>filter==='all'||filter===type).forEach(([type,title])=>{
-    const group=document.createElement('section');group.className='recipe-selector-group';const heading=document.createElement('h3');heading.textContent=type==='equipment'?`📦 ${title}`:`🥛 ${title}`;group.append(heading);
-    const items=state.inventory.filter(x=>type==='equipment'?x.category==='equipment':x.category!=='equipment'&&(x.material_type||'other')===type);
-    if(!items.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='ยังไม่มีรายการในกลุ่มนี้';group.append(empty);}
-    items.forEach(stock=>{const saved=recipeSelectorDraft.find(x=>x.stock_key===stock.stock_key);const row=document.createElement('div');row.className='recipe-selector-row';row.dataset.stockKey=stock.stock_key;const check=document.createElement('input');check.type='checkbox';check.checked=!!saved;const label=document.createElement('label');label.textContent=stock.name;const meta=document.createElement('small');meta.textContent=`${stock.stock_key} · ต้นทุน ${money(stock.cost_per_unit||0)}/${stock.unit}`;label.append(meta);const qty=document.createElement('input');qty.type='number';qty.min='0.01';qty.step='0.01';qty.value=saved?.quantity||1;qty.disabled=!check.checked;qty.setAttribute('aria-label',`ปริมาณ ${stock.name}`);check.onchange=()=>{qty.disabled=!check.checked;setRecipeSelectorItem(stock.stock_key,check.checked?Number(qty.value)||1:0);};qty.oninput=()=>{if(check.checked)setRecipeSelectorItem(stock.stock_key,Number(qty.value)||0);};row.append(check,label,qty);group.append(row);});root.append(group);
-  });
-}
-$('#btn-open-recipe-selector') && ($('#btn-open-recipe-selector').onclick=()=>{recipeSelectorDraft=currentEditRecipeItems.map(x=>({stock_key:x.stock_key,quantity:Number(x.quantity)}));renderRecipeSelector();$('#recipe-selector-dialog')?.showModal();});
-$('#recipe-material-filter') && ($('#recipe-material-filter').onchange=renderRecipeSelector);
-$('#recipe-selector-apply') && ($('#recipe-selector-apply').onclick=()=>{currentEditRecipeItems=recipeSelectorDraft.flatMap(x=>{const stock=state.inventory.find(item=>item.stock_key===x.stock_key);return stock?[{stock_key:stock.stock_key,quantity:Number(x.quantity),name:stock.name,unit:stock.unit,cost_per_unit:stock.cost_per_unit}]:[];});$('#recipe-selector-dialog')?.close();renderEditRecipeItems();});
 
 function renderRecipeSelected() {
   const root = $('#recipe-selected-list'), count = $('#recipe-selector-count'), total = $('#recipe-selected-cost');

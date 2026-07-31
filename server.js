@@ -403,68 +403,8 @@ app.post('/api/orders', (req,res) => {
   } catch(e) { fail(res,e.message); }
 });
 
-app.post('/api/orders-legacy', (req,res) => {
-  const {items, discount=0, paymentType, memberPhone=null, received=0, changeDue=0, redeemFreeCup=false} = req.body || {};
-  if (!Array.isArray(items) || !items.length || !['cash','qr'].includes(paymentType)) return fail(res,'ข้อมูลการชำระเงินไม่ถูกต้อง');
-  if (!Number.isFinite(Number(discount)) || Number(discount)<0) return fail(res,'ส่วนลดไม่ถูกต้อง');
-  try {
-    const order = db.transaction(() => {
-      const products = db.prepare(`SELECT * FROM products WHERE id=?`); let subtotal=0; const lines=[];
-      for (const row of items) { const product=products.get(Number(row.productId)); const qty=Number(row.quantity); if(!product || !product.active || !Number.isInteger(qty) || qty<1 || qty>99) throw Error('รายการสินค้าไม่ถูกต้อง'); subtotal += product.price*qty; lines.push({product,qty,options:row.options||{}}); }
-      
-      const finalDiscount=Math.min(Number(discount),subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
-      
-      // Stock checks (Structured Recipes verification)
-      for (const {product,qty} of lines) {
-        if (!product.deduct_stock) continue;
-        const recipeItems = getRecipeItems(product.id, product.stock_key);
-        for (const item of recipeItems) {
-          const stock = db.prepare('SELECT name, quantity FROM inventory WHERE stock_key=?').get(item.stock_key);
-          if (!stock || stock.quantity < item.quantity * qty) {
-            throw Error(`สต็อก ${stock?.name || item.stock_key} ไม่เพียงพอสำหรับเมนู ${product.name}`);
-          }
-        }
-      }
-      
-      db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,paymentType,memberPhone||null,received,changeDue);
-      
-      for (const {product,qty,options} of lines) {
-        db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name,product.price,qty,JSON.stringify(options));
-        
-        // Multi-item inventory reductions
-        if (!product.deduct_stock) continue;
-        const recipeItems = getRecipeItems(product.id, product.stock_key);
-        for (const item of recipeItems) {
-          db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity * qty, item.stock_key);
-          db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key, -item.quantity * qty, 'sale', orderId, now);
-        }
-      }
-      
-      let memberPoints = 0;
-      if(memberPhone && enabled('members')) {
-        const member = db.prepare('SELECT points FROM members WHERE phone=?').get(memberPhone);
-        if (member) {
-          let cupsEarned = 0;
-          for (const {product, qty} of lines) {
-            if (['coffee','tea'].includes(product.category)) {
-              cupsEarned += qty;
-            }
-          }
-          let newPoints = member.points;
-          if (redeemFreeCup) {
-            if (member.points < 10) throw Error('คะแนนไม่เพียงพอสำหรับแลกแก้วฟรี');
-            if (cupsEarned < 1) throw Error('ต้องมีเครื่องดื่มอย่างน้อย 1 แก้วเพื่อใช้สิทธิ์');
-            newPoints -= 10;
-            cupsEarned = Math.max(0, cupsEarned - 1);
-          }
-          newPoints += cupsEarned;
-          db.prepare('UPDATE members SET points=? WHERE phone=?').run(newPoints, memberPhone);
-          memberPoints = newPoints;
-        }
-      }
-      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType,memberPhone,received,changeDue,memberPoints};
-    })(); res.status(201).json(order);
-  } catch(e) { fail(res,e.message); }
+app.post('/api/orders-legacy', (_req,res) => {
+  fail(res, 'เส้นทางขายแบบเก่าถูกยกเลิก กรุณาใช้ /api/orders', 410);
 });
 
 const reportFilters = req => ({
@@ -566,24 +506,39 @@ app.get('/api/reports/analytics', (req, res) => {
 app.get('/api/reports/transactions', (req, res) => {
   if (!enabled('reports')) return fail(res, 'ยังไม่ได้เปิดฟังก์ชันรายงาน', 403);
   try {
-    const filter=reportOrderWhere(reportFilters(req));
+    const filters=reportFilters(req);
+    const filter=reportOrderWhere(filters);
+    const lineFiltered=!!(filters.category||filters.productId);
     const orders = db.prepare(`SELECT o.* FROM orders o ${filter.sql} ORDER BY o.created_at DESC LIMIT 200`).all(...filter.params);
     const transactions = orders.map(o => {
-      const items = db.prepare('SELECT product_id,name,unit_price,quantity,options_json FROM order_items WHERE order_id=?').all(o.id);
+      const itemWhere=['oi.order_id=?'],itemParams=[o.id];
+      if(filters.category){itemWhere.push("coalesce(p.category,'other')=?");itemParams.push(filters.category);}
+      if(filters.productId){itemWhere.push('CAST(oi.product_id AS TEXT)=?');itemParams.push(filters.productId);}
+      const items = db.prepare(`
+        SELECT oi.product_id,oi.name,oi.unit_price,oi.quantity,oi.options_json
+        FROM order_items oi
+        LEFT JOIN products p ON p.id=oi.product_id
+        WHERE ${itemWhere.join(' AND ')}
+      `).all(...itemParams);
+      const filteredSubtotal=items.reduce((sum,item)=>sum+Number(item.unit_price||0)*Number(item.quantity||0),0);
+      const subtotal=lineFiltered?filteredSubtotal:Number(o.subtotal||0);
+      const discount=lineFiltered?0:Number(o.discount||0);
+      const total=lineFiltered?filteredSubtotal:Number(o.total||0);
+      const gpPercent=Number(o.gp_percent||0);
       return {
         id: o.id,
         created_at: o.created_at,
-        subtotal: o.subtotal,
-        discount: o.discount,
-        total: o.total,
+        subtotal,
+        discount,
+        total,
         payment_type: o.payment_type,
         sales_channel: o.sales_channel || 'store',
         online_platform: o.online_platform,
-        gp_percent: o.gp_percent || 0,
-        online_net: o.online_net ?? o.total,
+        gp_percent: gpPercent,
+        online_net: lineFiltered&&o.sales_channel==='online'?total*(1-gpPercent/100):(o.online_net ?? o.total),
         member_phone: o.member_phone,
-        received: o.received,
-        change_due: o.change_due,
+        received: lineFiltered?null:o.received,
+        change_due: lineFiltered?null:o.change_due,
         items
       };
     });

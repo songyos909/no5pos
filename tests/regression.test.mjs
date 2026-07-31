@@ -89,16 +89,15 @@ test('Firebase migration includes options, online prices and boolean conversion'
   assert.match(html, /active:x\.active!==0/);
 });
 
-test('Firebase restores required GP channels without replacing saved GP values', async () => {
+test('Firebase respects deleted or disabled categories and GP channels after initial setup', async () => {
   const firebase = await read('public/firebase-client.js');
-  assert.match(firebase, /restoreDefaultChannels/);
   assert.match(firebase, /effectiveFirebaseChannels/);
-  assert.match(firebase, /existing\.data\(\)\.active===false/);
-  assert.match(firebase, /\{active:true\},\{merge:true\}/);
-  assert.doesNotMatch(firebase, /existing\.ref,\{gp_percent/);
+  assert.match(firebase, /channels\.filter\(channel=>channel\.active!==false\)/);
+  assert.match(firebase, /categories\.filter\(category=>category\.active!==false\)/);
+  assert.doesNotMatch(firebase, /restoreDefaultCategories|restoreDefaultChannels/);
 });
 
-test('required menu categories are restored without deleting custom categories', async () => {
+test('default data is seeded once without recreating user-deleted records', async () => {
   const [server, firebase] = await Promise.all([
     read('server.js'),
     read('public/firebase-client.js')
@@ -108,10 +107,32 @@ test('required menu categories are restored without deleting custom categories',
       assert.match(source, new RegExp(`['"]${category}['"]`));
     }
   }
-  assert.match(firebase, /restoreDefaultCategories/);
+  assert.match(firebase, /required_menu_seeded/);
   assert.match(firebase, /effectiveFirebaseCategories/);
-  assert.match(firebase, /existing\.data\(\)\.active===false/);
   assert.match(server, /INSERT OR IGNORE INTO categories/);
+});
+
+test('filtered transaction reports return only matching items and matching totals', async () => {
+  const [server, firebase] = await Promise.all([
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  for (const source of [server, firebase]) {
+    assert.match(source, /lineFiltered/);
+    assert.match(source, /filteredSubtotal/);
+    assert.match(source, /received:\s*lineFiltered\?null/);
+  }
+  assert.match(server, /LEFT JOIN products p ON p\.id=oi\.product_id/);
+  assert.match(firebase, /visibleItems/);
+});
+
+test('admin form action buttons cannot submit and close their parent dialogs', async () => {
+  const app = await read('public/app.js');
+  for (const button of ['adjustBtn','editBtn','deleteBtn','saveBtn']) {
+    assert.match(app, new RegExp(`${button}\\.type = 'button'`));
+  }
+  assert.match(app, /type="button" data-edit-category/);
+  assert.match(app, /type="button" data-delete-category/);
 });
 
 test('online checkout does not require or store a payment method', async () => {
@@ -175,7 +196,7 @@ test('category ordering persists with drag and arrow controls in both backends',
     assert.match(source, /admin\/categories\/order/);
     assert.match(source, /ลำดับหมวดหมู่ไม่ถูกต้อง/);
   }
-  assert.match(firebase, /sortBySavedOrder\(\[\.\.\.byId\.values\(\)\]/);
+  assert.match(firebase, /sortBySavedOrder\(categories\.filter/);
   assert.match(css, /\.category-order-actions/);
 });
 

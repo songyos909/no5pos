@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260731-26">
+  <link rel="stylesheet" href="./styles.css?v=20260731-27">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -75,7 +75,7 @@
         <div id="top-menu-list" class="top-menu-list" role="menu"></div>
       </div>
       <button class="icon-button" id="kds-mode-btn" type="button">☕<span>Kitchen View</span></button>
-      <div class="status"><i></i> พร้อมขาย</div>
+      <div class="status is-connecting" id="system-status" role="status" aria-live="polite"><i></i><span>กำลังเชื่อมต่อ</span></div>
       <button class="icon-button" id="settingsBtn" aria-label="ตั้งค่าร้าน">⚙<span>ตั้งค่าร้าน</span></button>
     </div>
   </header>
@@ -393,7 +393,7 @@
   </dialog>
 
   <dialog id="cost-inventory-dialog" class="touch-dialog">
-    <form method="dialog"><header><div><p class="eyebrow">COST INPUT</p><h2>เพิ่มวัตถุดิบ / บรรจุภัณฑ์</h2></div><button class="close" value="cancel">×</button></header>
+    <form method="dialog"><header><div><p class="eyebrow">COST INPUT</p><h2>เพิ่มวัตถุดิบ / บรรจุภัณฑ์</h2></div><button class="close" type="submit" value="cancel" aria-label="ปิด">×</button></header>
       <div class="cost-input-grid">
         <label>หมวด<select id="cost-inv-category"><option value="ingredient">วัตถุดิบ</option><option value="equipment">บรรจุภัณฑ์ / อุปกรณ์</option></select></label>
         <label>ประเภทวัตถุดิบหลัก<select id="cost-inv-material-type"><option value="coffee_beans">เมล็ดกาแฟ</option><option value="cocoa">โกโก้</option><option value="tea">ชา</option><option value="milk">นม</option><option value="sweetness">ความหวาน</option><option value="syrup">ไซรัป</option><option value="equipment">อุปกรณ์ / บรรจุภัณฑ์</option><option value="other" selected>อื่น ๆ</option></select></label>
@@ -529,7 +529,7 @@
   </dialog>
 
   <dialog id="recipe-selector-dialog" class="touch-dialog recipe-selector-dialog">
-    <form method="dialog"><header><div><p class="eyebrow">RECIPE STOCK SELECTOR</p><h2>เลือกสิ่งที่ต้องหักสต็อก</h2></div><button class="close" value="cancel">×</button></header>
+    <form method="dialog"><header><div><p class="eyebrow">RECIPE STOCK SELECTOR</p><h2>เลือกสิ่งที่ต้องหักสต็อก</h2></div><button class="close" type="submit" value="cancel" aria-label="ปิด">×</button></header>
       <p class="hint">ค้นหา เลือก และปรับปริมาณต่อ 1 แก้วได้จากหน้าจอเดียว</p>
       <div class="recipe-selector-layout">
         <section class="recipe-library-pane"><div class="recipe-selector-tools"><input id="recipe-stock-search" type="search" placeholder="ค้นหาวัตถุดิบหรือบรรจุภัณฑ์"><select id="recipe-material-filter"><option value="all">ทุกประเภท</option><option value="coffee_beans">เมล็ดกาแฟ</option><option value="cocoa">โกโก้</option><option value="tea">ชา</option><option value="milk">นม</option><option value="sweetness">ความหวาน</option><option value="syrup">ไซรัป</option><option value="other">อื่น ๆ</option><option value="equipment">อุปกรณ์ / บรรจุภัณฑ์</option></select></div><div id="recipe-selector-list" class="recipe-selector-list"></div></section>
@@ -646,7 +646,7 @@
           <p class="eyebrow">REPORTS & ANALYTICS</p>
           <h2>📊 รายงานและสถิติยอดขาย</h2>
         </div>
-        <button class="close" type="button" onclick="document.getElementById('reports-dialog').close()">×</button>
+        <button class="close" type="button" aria-label="ปิด" onclick="document.getElementById('reports-dialog').close()">×</button>
       </header>
       <div style="padding: 24px; overflow-y: auto; max-height: 75vh;">
         <section class="report-filters" aria-label="Report filters">
@@ -817,13 +817,13 @@
       </div>
     </form>
   </dialog>
-  <dialog id="kds-dialog" class="kds-dialog"><div class="kds-shell"><header><div><p class="eyebrow">KITCHEN DISPLAY SYSTEM</p><h2>คิวชงกาแฟ</h2></div><div style="display:flex;gap:8px;align-items:center;"><button id="kds-clear-completed-btn" type="button" class="secondary-btn">ล้างคิวเสิร์ฟแล้ว</button><button class="close" id="kds-close-btn" type="button">×</button></div></header><div id="kds-grid" class="kds-grid"></div></div></dialog>
-  <dialog id="numpad-dialog" class="touch-dialog numpad-dialog"><form method="dialog"><header><h2 id="numpad-title">กรอกข้อมูล</h2><button class="close" value="cancel">×</button></header><output id="numpad-value" class="numpad-value"></output><div id="numpad-keys" class="numpad-keys"></div><footer class="touch-dialog-footer"><button type="button" id="numpad-clear-btn">ล้าง</button><button type="button" class="primary" id="numpad-confirm-btn">ยืนยัน</button></footer></form></dialog>
+  <dialog id="kds-dialog" class="kds-dialog"><div class="kds-shell"><header><div><p class="eyebrow">KITCHEN DISPLAY SYSTEM</p><h2>คิวชงกาแฟ</h2></div><div style="display:flex;gap:8px;align-items:center;"><button id="kds-clear-completed-btn" type="button" class="secondary-btn">ล้างคิวเสิร์ฟแล้ว</button><button class="close" id="kds-close-btn" type="button" aria-label="ปิด">×</button></div></header><div id="kds-grid" class="kds-grid"></div></div></dialog>
+  <dialog id="numpad-dialog" class="touch-dialog numpad-dialog"><form method="dialog"><header><h2 id="numpad-title">กรอกข้อมูล</h2><button class="close" type="submit" value="cancel" aria-label="ปิด">×</button></header><output id="numpad-value" class="numpad-value"></output><div id="numpad-keys" class="numpad-keys"></div><footer class="touch-dialog-footer"><button type="button" id="numpad-clear-btn">ล้าง</button><button type="button" class="primary" id="numpad-confirm-btn">ยืนยัน</button></footer></form></dialog>
   <dialog id="firebase-login-dialog" class="touch-dialog"><form method="dialog"><header><div><p class="eyebrow">NO.5 POS</p><h2>เข้าสู่ระบบร้าน</h2></div></header><div class="firebase-login-form"><label>อีเมล<input id="firebase-email" type="email" value="songyos909@gmail.com" autocomplete="username"></label><label>รหัสผ่าน Firebase<input id="firebase-password" type="password" autocomplete="current-password"></label><p id="firebase-login-error"></p></div><footer class="touch-dialog-footer"><span></span><button type="button" class="primary" id="firebase-login-btn">เข้าสู่ระบบ</button></footer></form></dialog>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260731-26"></script>
-  <script src="./app.js?v=20260731-26"></script>
+  <script src="./firebase-client.js?v=20260731-27"></script>
+  <script src="./app.js?v=20260731-27"></script>
 </body>
 </html>
