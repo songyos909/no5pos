@@ -237,6 +237,15 @@ test('responsive POS has desktop, tablet and mobile cart layouts', async () => {
   assert.match(css, /#tab-members \.loyalty-settings-heading[\s\S]*position:sticky/);
 });
 
+test('product editor always synchronizes category choices', async () => {
+  const app = await read('public/app.js');
+  assert.match(app, /function syncProductCategoryOptions/);
+  assert.match(app, /syncProductCategoryOptions\(\);/);
+  assert.match(app, /syncProductCategoryOptions\(product\?\.category\)/);
+  assert.match(app, /select\.replaceChildren\(\.\.\.options\)/);
+  assert.match(app, /state\.categories\.some\(category => String\(category\.category_key\) === String\(savedCategory\)\)/);
+});
+
 test('loyalty points can be configured for all, category or individual products', async () => {
   const [html, app, server, firebase] = await Promise.all([
     read('public/index.html'),
