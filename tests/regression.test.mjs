@@ -152,6 +152,13 @@ test('online checkout does not require or store a payment method', async () => {
   }
 });
 
+test('online orders default to LINE MAN while preserving an existing selection', async () => {
+  const app = await read('public/app.js');
+  assert.match(app, /DEFAULT_ONLINE_CHANNEL_KEY = 'lineman'/);
+  assert.match(app, /channel\.channel_key === previous/);
+  assert.match(app, /channel\.channel_key === DEFAULT_ONLINE_CHANNEL_KEY/);
+});
+
 test('menu, option group and option choice ordering persist in both backends', async () => {
   const [app, server, firebase] = await Promise.all([
     read('public/app.js'),

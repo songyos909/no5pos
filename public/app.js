@@ -28,6 +28,7 @@ let currentEditRecipeItems = [];
 let uploadedProductImageData = null;
 let productEditorReturnView = null;
 let currentCustomOptionGroups = [];
+const DEFAULT_ONLINE_CHANNEL_KEY = 'lineman';
 
 // ── Utilities ─────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
@@ -190,7 +191,12 @@ function renderOnlineChannelOptions() {
     option.textContent = `${channel.name} — GP ${Number(channel.gp_percent || 0).toFixed(2)}%`;
     return option;
   }));
-  if (state.channels.some(channel => channel.channel_key === previous)) select.value = previous;
+  const selectedKey = state.channels.some(channel => channel.channel_key === previous)
+    ? previous
+    : state.channels.some(channel => channel.channel_key === DEFAULT_ONLINE_CHANNEL_KEY)
+      ? DEFAULT_ONLINE_CHANNEL_KEY
+      : state.channels[0]?.channel_key;
+  if (selectedKey) select.value = selectedKey;
   updateOnlineChannelUI();
 }
 
