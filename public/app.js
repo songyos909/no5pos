@@ -2128,6 +2128,19 @@ if (topMenuToggle) topMenuToggle.onclick = () => {
 };
 document.addEventListener('click', event => { if (!event.target.closest('.top-menu')) { $('.top-menu')?.classList.remove('open'); topMenuToggle?.setAttribute('aria-expanded','false'); } });
 
+// Touch-friendly fallback for every dialog close button. Dedicated handlers
+// run first, so flows such as returning from product editing remain unchanged.
+document.addEventListener('click', event => {
+  const closeButton = event.target.closest?.('button.close');
+  if (!closeButton) return;
+  const dialog = closeButton.closest('dialog');
+  if (!dialog?.open) return;
+  event.preventDefault();
+  dialog.close('cancel');
+  if (dialog.id === 'checkout-calc-dialog') checkoutPayload = null;
+  if (dialog.id === 'kds-dialog') clearInterval(kdsTimer);
+});
+
 let costInventoryEditingKey = null;
 function openCostInventory(item = null) {
   costInventoryEditingKey = item?.stock_key || null;
