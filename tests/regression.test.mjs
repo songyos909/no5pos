@@ -246,6 +246,18 @@ test('product editor always synchronizes category choices', async () => {
   assert.match(app, /state\.categories\.some\(category => String\(category\.category_key\) === String\(savedCategory\)\)/);
 });
 
+test('dialog close buttons have reliable touch targets and a shared fallback', async () => {
+  const [app, css] = await Promise.all([
+    read('public/app.js'),
+    read('public/styles.css')
+  ]);
+  assert.match(css, /\.close \{[\s\S]*width: 52px/);
+  assert.match(css, /\.close \{[\s\S]*touch-action: manipulation/);
+  assert.match(css, /dialog:not\(#kds-dialog\) header \.close \{[\s\S]*z-index:20/);
+  assert.match(app, /event\.target\.closest\?\.\('button\.close'\)/);
+  assert.match(app, /dialog\.close\('cancel'\)/);
+});
+
 test('loyalty points can be configured for all, category or individual products', async () => {
   const [html, app, server, firebase] = await Promise.all([
     read('public/index.html'),
