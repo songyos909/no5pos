@@ -15,6 +15,7 @@ let state = {
   channels: [],
   channelPrices: [],
   optionGroups: [],
+  discountPresets: [],
   bestSellers: [],
   loyaltySettings: { mode:'category', categoryKeys:['coffee','tea'], productIds:[], earnStore:true, earnOnline:true, rewardPoints:10, rewardType:'free_product', rewardMode:'category', rewardCategoryKeys:['coffee','tea'], rewardProductIds:[], rewardDiscountAmount:50, rewardMaxPrice:0 },
   recipesData: [],
@@ -105,6 +106,7 @@ async function load() {
     state.channels = boot.channels || [];
     state.channelPrices = boot.channelPrices || [];
     state.optionGroups = normalizeCustomOptionGroups(boot.optionGroups || []);
+    state.discountPresets = Array.isArray(boot.discountPresets) ? boot.discountPresets.map(Number).filter(value=>value>0) : [];
     state.bestSellers = Array.isArray(boot.bestSellers) ? boot.bestSellers : [];
     state.loyaltySettings = normalizeLoyaltySettings(boot.loyaltySettings);
     state.cart = savedCart.flatMap(item => {
@@ -114,6 +116,7 @@ async function load() {
       return [{...item,product,options,key:`${product.id}:${JSON.stringify(options)}`}];
     });
     renderOnlineChannelOptions();
+    renderDiscountPresets();
     state.selectedCategory = savedCategory === 'all'
       || state.categories.some(category => String(category.category_key) === String(savedCategory))
       ? savedCategory
@@ -175,6 +178,20 @@ function calculateCartTotals() {
   }
   const billDiscount=Math.min(Math.max(0,Number($('#discount')?.value)||0),Math.max(0,afterItemDiscount-memberDiscount));
   return {subtotal,itemDiscount,afterItemDiscount,memberDiscount,billDiscount,total:Math.max(0,afterItemDiscount-memberDiscount-billDiscount)};
+}
+
+function renderDiscountPresets() {
+  const select=$('#discount-preset');if(!select)return;
+  const selected=select.value;
+  select.innerHTML='<option value="">เลือกส่วนลดท้ายบิล</option>';
+  state.discountPresets.forEach(value=>{const option=document.createElement('option');option.value=String(value);option.textContent=`ลด ${money(value)}`;select.append(option);});
+  if([...select.options].some(option=>option.value===selected))select.value=selected;
+}
+
+async function persistDiscountPresets(values) {
+  const result=await api('/api/discount-presets',{method:'PUT',body:JSON.stringify({values})});
+  state.discountPresets=Array.isArray(result.values)?result.values:values;
+  renderDiscountPresets();
 }
 
 function updateOnlineIncomeSummary() {
@@ -643,7 +660,7 @@ function addToCart(product, options = {}) {
   const key = `${product.id}:${JSON.stringify(options)}`;
   const existing = state.cart.find(x => x.key === key);
   if (existing) existing.qty++;
-  else state.cart.push({ product, options, unitPrice: saleBasePrice(product) + modifierExtra(options, product), itemDiscount:0, key, qty: 1 });
+  else state.cart.push({ product, options, unitPrice: saleBasePrice(product) + modifierExtra(options, product), itemDiscount:Math.min(saleBasePrice(product)+modifierExtra(options,product),Math.max(0,Number(product.default_discount)||0)), key, qty: 1 });
   renderCart();
   const badge = $('#count');
   if (badge) { badge.classList.remove('pulse'); void badge.offsetWidth; badge.classList.add('pulse'); }
@@ -1978,6 +1995,7 @@ async function openProductEditor(product) {
     if ($('#edit-prod-id')) $('#edit-prod-id').value = product.id;
     if ($('#edit-prod-name')) $('#edit-prod-name').value = product.name;
     if ($('#edit-prod-price')) $('#edit-prod-price').value = product.price;
+    if ($('#edit-prod-default-discount')) $('#edit-prod-default-discount').value = Number(product.default_discount)||0;
     if ($('#edit-prod-margin')) $('#edit-prod-margin').value = Math.round((product.target_margin ?? .65) * 100);
     if ($('#edit-prod-emoji')) $('#edit-prod-emoji').value = product.emoji;
     if ($('#edit-prod-image')) $('#edit-prod-image').value = product.image_path || '';
@@ -2002,6 +2020,7 @@ async function openProductEditor(product) {
     if ($('#edit-prod-id')) $('#edit-prod-id').value = '';
     if ($('#edit-prod-name')) $('#edit-prod-name').value = '';
     if ($('#edit-prod-price')) $('#edit-prod-price').value = '';
+    if ($('#edit-prod-default-discount')) $('#edit-prod-default-discount').value = 0;
     if ($('#edit-prod-margin')) $('#edit-prod-margin').value = 65;
     if ($('#edit-prod-emoji')) $('#edit-prod-emoji').value = '☕';
     if ($('#edit-prod-image')) $('#edit-prod-image').value = '';
@@ -2141,6 +2160,7 @@ if (saveProductBtn) {
     const id = $('#edit-prod-id')?.value;
     const name = ($('#edit-prod-name')?.value || '').trim();
     const price = Number($('#edit-prod-price')?.value);
+    const defaultDiscount = Number($('#edit-prod-default-discount')?.value)||0;
     const targetMargin = Number($('#edit-prod-margin')?.value) / 100;
     const category = $('#edit-prod-category')?.value || 'other';
     const emoji = ($('#edit-prod-emoji')?.value || '☕').slice(0, 8);
@@ -2152,17 +2172,18 @@ if (saveProductBtn) {
     const customOptions = normalizeCustomOptionGroups(currentCustomOptionGroups);
 
     if (!name || isNaN(price) || price < 0) return alert('กรอกชื่อสินค้าและราคาให้ถูกต้อง');
+    if(defaultDiscount<0||defaultDiscount>price)return showNotice('ส่วนลดประจำเมนูต้องอยู่ระหว่าง 0 ถึงราคาสินค้า','error');
     if (deductStock && !currentEditRecipeItems.length) return showNotice('เมนูที่ตัด stock ต้องเลือกวัตถุดิบหรือบรรจุภัณฑ์อย่างน้อย 1 รายการ หรือปิด “ตัด stock”', 'error');
 
     try {
       let productId;
       if (id) {
-        await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, category, emoji, active, deductStock, imagePath, imageData, customOptions }) });
+        await api(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify({ name, price, defaultDiscount, category, emoji, active, deductStock, imagePath, imageData, customOptions }) });
         await api(`/api/admin/products/${id}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         productId = Number(id);
         showNotice('บันทึกข้อมูลสินค้าสำเร็จ!');
       } else {
-        const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, category, emoji, deductStock, imagePath, imageData, customOptions }) });
+        const res = await api('/api/admin/products', { method: 'POST', body: JSON.stringify({ name, price, defaultDiscount, category, emoji, deductStock, imagePath, imageData, customOptions }) });
         productId = res.id;
         await api(`/api/admin/products/${productId}/costing`, { method: 'PUT', body: JSON.stringify({ price, targetMargin }) });
         showNotice('เพิ่มสินค้าใหม่สำเร็จ!');
@@ -2225,6 +2246,9 @@ if (quickAddCategoryBtn) quickAddCategoryBtn.onclick = () => {
 
 const discountEl = $('#discount');
 if (discountEl) discountEl.oninput = renderCart;
+$('#discount-preset') && ($('#discount-preset').onchange=event=>{if(event.target.value&&discountEl){discountEl.value=event.target.value;renderCart();}});
+$('#save-discount-preset') && ($('#save-discount-preset').onclick=async()=>{const value=Number(discountEl?.value)||0;if(value<=0)return showNotice('กรอกส่วนลดท้ายบิลก่อนบันทึก','error');try{await persistDiscountPresets([...state.discountPresets,value]);$('#discount-preset').value=String(value);showNotice(`บันทึกตัวเลือกส่วนลด ${money(value)} แล้ว`);}catch(error){showNotice(error.message,'error');}});
+$('#delete-discount-preset') && ($('#delete-discount-preset').onclick=async()=>{const value=Number($('#discount-preset')?.value)||0;if(!value)return showNotice('เลือกตัวเลือกส่วนลดที่ต้องการลบ','error');try{await persistDiscountPresets(state.discountPresets.filter(item=>item!==value));showNotice('ลบตัวเลือกส่วนลดแล้ว');}catch(error){showNotice(error.message,'error');}});
 const onlineActualReceivedEl=$('#online-actual-received');
 if(onlineActualReceivedEl)onlineActualReceivedEl.oninput=updateOnlineIncomeSummary;
 document.querySelectorAll('input[name="sale-channel"]').forEach(input => { input.onchange = updateOnlineChannelUI; });

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260809-31">
+  <link rel="stylesheet" href="./styles.css?v=20260809-32">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -149,6 +149,13 @@
         <label>ส่วนลดท้ายบิล <span>บาท</span>
           <input id="discount" type="number" min="0" value="0">
         </label>
+        <div class="discount-preset-controls">
+          <label>ตัวเลือกส่วนลดที่บันทึกไว้
+            <select id="discount-preset"><option value="">เลือกส่วนลดท้ายบิล</option></select>
+          </label>
+          <button id="save-discount-preset" type="button">＋ บันทึกยอดนี้ใช้ครั้งถัดไป</button>
+          <button id="delete-discount-preset" type="button" class="danger-btn">ลบตัวเลือก</button>
+        </div>
         <label id="payment-field">ช่องทางชำระเงิน
           <select id="payment">
             <option value="cash">เงินสด</option>
@@ -450,6 +457,8 @@
           <div>
             <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">ราคาหน้าร้าน (บาท)</label>
             <input id="edit-prod-price" type="number" min="0" step="0.5" placeholder="ราคา" style="width:100%;">
+            <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin:8px 0 4px;">ส่วนลดประจำเมนู (บาท/ชิ้น)</label>
+            <input id="edit-prod-default-discount" type="number" min="0" step="0.5" value="0" style="width:100%;">
             <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin:8px 0 4px;">เป้ากำไรขั้นต้น (%)</label>
             <input id="edit-prod-margin" type="number" min="1" max="94" step="1" value="65" style="width:100%;">
           </div>
@@ -844,7 +853,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260809-31"></script>
-  <script src="./app.js?v=20260809-31"></script>
+  <script src="./firebase-client.js?v=20260809-32"></script>
+  <script src="./app.js?v=20260809-32"></script>
 </body>
 </html>
