@@ -1445,6 +1445,16 @@ dialog:not(#kds-dialog) #receipt-dialog header { padding-right:58px; }
 @media(max-width:760px){.recipe-book-toolbar{grid-template-columns:1fr 1fr}.recipe-book-row{grid-template-columns:26px minmax(0,1fr)}.recipe-book-actions{grid-column:2}.recipe-book-summary{display:block}.recipe-book-summary span{display:block;margin-top:5px}}
 @media(max-width:620px){.recipe-sweetness-inputs,.recipe-book-sweetness{grid-template-columns:1fr}}
 
+/* The recipe book has a header as its first child. Override the generic
+   full-screen-dialog rule that otherwise makes that header 100dvh tall. */
+#recipe-book-dialog[open]{display:flex;flex-direction:column;overflow:hidden;background:#fffaf6}
+#recipe-book-dialog>header{box-sizing:border-box!important;display:flex!important;flex:0 0 auto!important;width:100%!important;min-height:82px!important;margin:0!important;padding:18px 72px 14px 22px!important}
+#recipe-book-dialog .recipe-book-toolbar{flex:0 0 auto}
+#recipe-book-dialog .recipe-book-summary{flex:0 0 auto}
+#recipe-book-dialog .recipe-book-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.recipe-book-row.is-guide{border-color:#e7c5a9;background:#fff9f3}.recipe-book-row.is-guide .recipe-book-title small{color:#a45d32;font-weight:700}
+@media(max-width:620px){#recipe-book-dialog>header{min-height:96px!important;padding:20px 64px 14px 20px!important}#recipe-book-dialog .recipe-book-toolbar{grid-template-columns:1fr;padding:12px 16px}#recipe-book-dialog .recipe-book-summary{padding:10px 16px}#recipe-book-dialog .recipe-book-list{padding:0 12px 28px}.recipe-book-row{grid-template-columns:24px minmax(0,1fr);gap:9px;padding:11px}.recipe-book-actions{grid-column:2;display:grid;grid-template-columns:1fr 1fr}.recipe-book-actions button{width:100%}}
+
 @page{size:A4 portrait;margin:0}
 @media print{
   .recipe-a4-page{position:relative}

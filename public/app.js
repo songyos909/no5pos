@@ -48,6 +48,23 @@ function normalizeSweetnessLevels(levels, product = {}) {
   return Object.keys(SWEETNESS_LABELS).map(level => ({level,label:SWEETNESS_LABELS[level],formula:saved[level] || defaults[level]}));
 }
 
+function recipeDisplayItems(recipe, product) {
+  if (Array.isArray(recipe?.items) && recipe.items.length) return recipe.items;
+  const normal = normalizeSweetnessLevels(recipe?.sweetnessLevels, product).find(row => row.level === 'normal')?.formula || '';
+  return normal.split('+').map((part, index) => {
+    const text = part.trim();
+    const match = text.match(/^(.*?)(\d+(?:\.\d+)?)\s*(ml|g|oz)?$/i);
+    return match ? {stock_key:`guide-${index}`,name:match[1].trim(),quantity:match[2],unit:match[3] || ''} : {stock_key:`guide-${index}`,name:text,quantity:'ตามสูตร',unit:''};
+  }).filter(item => item.name);
+}
+
+function recipeDescription(recipe, product) {
+  if (String(recipe?.description || '').trim()) return recipe.description.trim();
+  const name = displayName(product).toLowerCase();
+  if (name.includes('americano') || name.includes('อเมริกาโน')) return 'สกัดกาแฟอัตรา 1:2 ให้ได้น้ำกาแฟ 40g เติมความหวานและน้ำตามระดับ คนให้เข้ากัน แล้วเทลงแก้วน้ำแข็งหลอดเล็กเต็มแก้ว';
+  return 'สกัดกาแฟอัตรา 1:2 ให้ได้น้ำกาแฟ 40g ผสมความหวานและส่วนผสมตามระดับ คนให้ละลาย เติมนมสด แล้วเทลงแก้วน้ำแข็งหลอดเล็กเต็มแก้ว';
+}
+
 // ── Utilities ─────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
 const money = n => `฿${Number(n || 0).toFixed(2)}`;
@@ -634,19 +651,20 @@ function showRecipePopover(product) {
   if (titleEl) titleEl.textContent = `${product.emoji} สูตรชง: ${product.name}`;
 
   if (itemsEl) {
-    if (recipe && recipe.items && recipe.items.length) {
-      itemsEl.innerHTML = recipe.items.map(x =>
+    const displayItems = recipeDisplayItems(recipe, product);
+    if (displayItems.length) {
+      itemsEl.innerHTML = displayItems.map(x =>
         `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f1ebe5;">
           <span>• ${escapeHtml(x.name)}</span>
           <span style="font-weight:700;color:var(--primary)">${escapeHtml(x.quantity)} ${escapeHtml(x.unit)}</span>
         </div>`
       ).join('');
     } else {
-      itemsEl.innerHTML = '<span style="color:#aaa;font-style:italic;">ยังไม่ได้ตั้งวัตถุดิบในสูตรชง</span>';
+      itemsEl.innerHTML = '<span style="color:#aaa;font-style:italic;">ยังไม่มีข้อมูลส่วนผสม</span>';
     }
   }
   if (descEl) {
-    descEl.textContent = recipe?.description || 'ยังไม่ได้ระบุขั้นตอนการชง';
+    descEl.textContent = recipeDescription(recipe, product);
   }
   if (sweetnessEl) {
     const levels = normalizeSweetnessLevels(recipe?.sweetnessLevels, product);
@@ -678,42 +696,42 @@ function renderRecipeBook() {
   root.replaceChildren();
   if (!rows.length) { root.innerHTML = '<div class="recipe-book-empty">ไม่พบสูตรชงที่ตรงกับการค้นหา</div>'; return; }
   rows.forEach(product => {
-    const recipe = recipeForProduct(product), items = recipe?.items || [];
-    const row = document.createElement('article'); row.className = `recipe-book-row${items.length ? '' : ' is-incomplete'}`;
+    const recipe = recipeForProduct(product), savedItems = recipe?.items || [], items = recipeDisplayItems(recipe, product);
+    const row = document.createElement('article'); row.className = `recipe-book-row${savedItems.length ? '' : ' is-guide'}`;
     const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selectedRecipePrintIds.has(String(product.id)); check.setAttribute('aria-label', `เลือกพิมพ์ ${displayName(product)}`);
     check.onchange = () => { check.checked ? selectedRecipePrintIds.add(String(product.id)) : selectedRecipePrintIds.delete(String(product.id)); renderRecipeBook(); };
     const imagePath = menuImageFor(product);
     const visual = imagePath ? `<img src="${escapeHtml(new URL(imagePath, document.baseURI).href)}" alt="">` : `<span>${escapeHtml(product.emoji || '☕')}</span>`;
     const info = document.createElement('div'); info.className = 'recipe-book-info';
-    info.innerHTML = `<div class="recipe-book-title">${visual}<div><strong>${escapeHtml(displayName(product))}</strong><small>${items.length ? `${items.length} วัตถุดิบ` : 'ยังไม่มีวัตถุดิบ'}</small></div></div><div class="recipe-book-ingredients">${items.length ? items.map(item => `<span><b>${escapeHtml(displayName(item))}</b> ${escapeHtml(item.quantity)} ${escapeHtml(item.unit || '')}</span>`).join('') : '<em>กรุณาเพิ่มสูตรก่อนพิมพ์</em>'}</div><p>${escapeHtml(recipe?.description || 'ยังไม่ได้ระบุขั้นตอนการชง')}</p>`;
+    info.innerHTML = `<div class="recipe-book-title">${visual}<div><strong>${escapeHtml(displayName(product))}</strong><small>${savedItems.length ? `${savedItems.length} วัตถุดิบจากสต็อก` : 'สูตรแนะนำ 16 oz · แก้ไขได้'}</small></div></div><div class="recipe-book-ingredients">${items.map(item => `<span><b>${escapeHtml(displayName(item))}</b> ${escapeHtml(item.quantity)} ${escapeHtml(item.unit || '')}</span>`).join('')}</div><p>${escapeHtml(recipeDescription(recipe, product))}</p>`;
     const sweetness = document.createElement('div'); sweetness.className = 'recipe-book-sweetness';
     sweetness.innerHTML = normalizeSweetnessLevels(recipe?.sweetnessLevels, product).map(level => `<span><b>${escapeHtml(level.label)}</b>${escapeHtml(level.formula)}</span>`).join('');
     info.append(sweetness);
     const actions = document.createElement('div'); actions.className = 'recipe-book-actions';
     const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'secondary-btn'; edit.textContent = '✏️ แก้ไข'; edit.onclick = () => { $('#recipe-book-dialog')?.close(); openProductEditor(product); };
-    const print = document.createElement('button'); print.type = 'button'; print.className = 'primary-btn'; print.textContent = '🖨️ A4'; print.disabled = !items.length; print.onclick = () => printRecipeBook([product]);
+    const print = document.createElement('button'); print.type = 'button'; print.className = 'primary-btn'; print.textContent = '🖨️ A4'; print.onclick = () => printRecipeBook([product]);
     actions.append(edit, print); row.append(check, info, actions); root.append(row);
   });
 }
 
-function recipeStepLines(recipe) {
-  const explicit = String(recipe?.description || '').split(/\n+|[.!?]\s+/).map(line => line.trim()).filter(Boolean);
+function recipeStepLines(recipe, product) {
+  const explicit = recipeDescription(recipe, product).split(/\n+|[.!?]\s+/).map(line => line.trim()).filter(Boolean);
   return explicit.length ? explicit.slice(0, 8) : ['เตรียมวัตถุดิบและอุปกรณ์ตามปริมาณ', 'ผสมหรือสกัดตามลำดับของสูตร', 'ตรวจรสชาติ จัดเสิร์ฟ และติดป้ายเมนู'];
 }
 
 function printRecipeBook(products) {
-  const printable = products.filter(product => recipeForProduct(product)?.items?.length);
-  if (!printable.length) return showNotice('เลือกสูตรที่มีวัตถุดิบอย่างน้อย 1 รายการ', 'error');
+  const printable = products.filter(Boolean);
+  if (!printable.length) return showNotice('กรุณาเลือกเมนูที่ต้องการพิมพ์', 'error');
   const sheet = $('#recipe-print-sheet'); if (!sheet) return;
   sheet.innerHTML = printable.map(product => {
-    const recipe = recipeForProduct(product), imagePath = menuImageFor(product);
+    const recipe = recipeForProduct(product), displayItems = recipeDisplayItems(recipe, product), imagePath = menuImageFor(product);
     const hero = imagePath ? `<img src="${escapeHtml(new URL(imagePath, document.baseURI).href)}" alt="${escapeHtml(displayName(product))}">` : `<span>${escapeHtml(product.emoji || '☕')}</span>`;
-    const ingredients = recipe.items.map((item, index) => {
+    const ingredients = displayItems.map((item, index) => {
       const stock = state.inventory.find(row => String(row.stock_key) === String(item.stock_key));
       const icon = stock?.category === 'equipment' ? '🥤' : ({coffee_beans:'🫘',milk:'🥛',tea:'🍃',cocoa:'🍫',syrup:'🍯',sweetness:'🧂'}[stock?.material_type] || '🥄');
       return `<article><i>${icon}</i><b>${index + 1}</b><strong>${escapeHtml(displayName(item))}</strong><span>${escapeHtml(item.quantity)} ${escapeHtml(item.unit || '')}</span></article>`;
     }).join('');
-    const steps = recipeStepLines(recipe).map((step, index) => `<li><b>${index + 1}</b><span>${escapeHtml(step)}</span></li>`).join('');
+    const steps = recipeStepLines(recipe, product).map((step, index) => `<li><b>${index + 1}</b><span>${escapeHtml(step)}</span></li>`).join('');
     const sweetTable = normalizeSweetnessLevels(recipe?.sweetnessLevels, product).map(level => `<tr><th>${escapeHtml(level.label)}</th><td>${escapeHtml(level.formula)}</td></tr>`).join('');
     return `<article class="recipe-a4-page"><header><div><small>NO.5 CAFE · STANDARD RECIPE</small><h1>${escapeHtml(displayName(product))}</h1><p>สูตรมาตรฐานต่อ 1 เสิร์ฟ · แก้ว 16 oz · น้ำแข็งหลอดเล็ก</p></div><div class="recipe-a4-hero">${hero}</div></header><section><h2>วัตถุดิบและปริมาณ</h2><div class="recipe-a4-flow">${ingredients}</div></section><section class="recipe-a4-sweetness"><h2>ตารางระดับความหวาน</h2><table><tbody>${sweetTable}</tbody></table></section><section class="recipe-a4-steps"><h2>ขั้นตอนการชง</h2><ol>${steps}</ol></section><footer><span>ตรวจสอบวัตถุดิบ → ชั่งตวง → ชงตามลำดับ → ตรวจคุณภาพ</span><b>NO.5 CAFE POS</b></footer></article>`;
   }).join('');
