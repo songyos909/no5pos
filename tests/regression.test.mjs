@@ -361,3 +361,17 @@ test('LINE MAN orders support item, bill and actual-received discounts', async (
   assert.match(server, /bill_discount/);
   assert.match(server, /platform_fee/);
 });
+
+test('online order numbers and backdated sales persist through both backends', async () => {
+  const html=await read('public/index.html');
+  const app=await read('public/app.js');
+  const server=await read('server.js');
+  const firebase=await read('public/firebase-client.js');
+  for(const id of ['online-order-number','backdate-enabled','backdate-datetime'])assert.match(html,new RegExp(`id="${id}"`));
+  for(const source of [app,server,firebase]){
+    assert.match(source,/externalOrderNumber/);
+    assert.match(source,/soldAt/);
+  }
+  assert.match(server,/external_order_number/);
+  assert.match(app,/external_order_number/);
+});

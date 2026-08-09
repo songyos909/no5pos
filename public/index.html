@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260809-30">
+  <link rel="stylesheet" href="./styles.css?v=20260809-31">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -130,12 +130,21 @@
           <label><input type="radio" name="sale-channel" value="online"> 🌐 ออนไลน์</label>
           <div id="online-channel-fields" class="online-channel-fields" hidden>
             <label>แพลตฟอร์ม<select id="online-channel"></select></label>
+            <label>เลขออเดอร์แพลตฟอร์ม
+              <input id="online-order-number" maxlength="40" placeholder="เช่น #1857">
+            </label>
             <output id="online-gp-summary">กรุณาตั้งค่า GP จริงของร้าน</output>
             <label>ยอดรับจริงจากแพลตฟอร์ม <span>บาท</span>
               <input id="online-actual-received" type="number" min="0" step="0.01" placeholder="เว้นว่างเพื่อคำนวณจาก GP">
             </label>
             <output id="online-income-summary" class="online-income-summary"></output>
           </div>
+        </fieldset>
+        <fieldset class="backdate-fields">
+          <label class="backdate-toggle"><input id="backdate-enabled" type="checkbox"> บันทึกการขายย้อนหลัง</label>
+          <label id="backdate-datetime-field" hidden>วันและเวลาที่ขายจริง
+            <input id="backdate-datetime" type="datetime-local">
+          </label>
         </fieldset>
         <label>ส่วนลดท้ายบิล <span>บาท</span>
           <input id="discount" type="number" min="0" value="0">
@@ -835,7 +844,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260809-30"></script>
-  <script src="./app.js?v=20260809-30"></script>
+  <script src="./firebase-client.js?v=20260809-31"></script>
+  <script src="./app.js?v=20260809-31"></script>
 </body>
 </html>
