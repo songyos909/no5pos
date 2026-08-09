@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260809-33">
+  <link rel="stylesheet" href="./styles.css?v=20260809-34">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -147,7 +147,7 @@
           </label>
         </fieldset>
         <label>ส่วนลดท้ายบิล <span>บาท</span>
-          <input id="discount" type="number" min="0" value="0">
+          <input id="discount" type="number" min="0" step="0.01" inputmode="decimal" value="0">
         </label>
         <div class="discount-preset-controls">
           <label>ตัวเลือกส่วนลดที่บันทึกไว้
@@ -853,7 +853,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260809-33"></script>
-  <script src="./app.js?v=20260809-33"></script>
+  <script src="./firebase-client.js?v=20260809-34"></script>
+  <script src="./app.js?v=20260809-34"></script>
 </body>
 </html>
