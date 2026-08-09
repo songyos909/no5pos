@@ -82,6 +82,7 @@ try { db.exec('ALTER TABLE products ADD COLUMN image_path TEXT'); } catch {}
 try { db.exec('ALTER TABLE products ADD COLUMN image_data TEXT'); } catch {}
 try { db.exec("ALTER TABLE products ADD COLUMN custom_options_json TEXT NOT NULL DEFAULT '[]'"); } catch {}
 try { db.exec("ALTER TABLE products ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE products ADD COLUMN default_discount REAL NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE option_groups ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN sales_channel TEXT NOT NULL DEFAULT 'store'"); } catch {}
@@ -307,8 +308,10 @@ const getRecipeItems = (productId, stockKey) => {
   return items;
 };
 const requireRecipe = product => { const items=getRecipeItems(product.id, product.stock_key); if (!items.length) throw Error(`เมนู ${product.name_th || product.name} ยังไม่มีสูตรชง กรุณาตั้งค่าสูตรก่อนขาย`); return items; };
+const getDiscountPresets=()=>{try{const row=db.prepare("SELECT value FROM app_metadata WHERE key='discount_presets'").get();const values=JSON.parse(row?.value||'[]');return [...new Set((Array.isArray(values)?values:[]).map(Number).filter(value=>Number.isFinite(value)&&value>0))].sort((a,b)=>a-b).slice(0,20);}catch{return [];}};
 
-app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY sort_order,category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY sort_order,name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), channelPrices:db.prepare('SELECT product_id,channel_key,sale_price FROM channel_prices').all(), optionGroups:getOptionGroups(), bestSellers:db.prepare('SELECT oi.product_id,sum(oi.quantity) qty FROM order_items oi JOIN products p ON p.id=oi.product_id WHERE p.active=1 GROUP BY oi.product_id ORDER BY qty DESC,oi.product_id LIMIT 10').all(), loyaltySettings:getLoyaltySettings(), features:Object.fromEntries(db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
+app.get('/api/bootstrap', (_,res) => res.json({ products:db.prepare('SELECT * FROM products WHERE active=1 ORDER BY sort_order,category,name').all(), inventory:db.prepare('SELECT * FROM inventory ORDER BY name').all(), categories:db.prepare('SELECT * FROM categories WHERE active=1 ORDER BY sort_order,name').all(), channels:db.prepare('SELECT * FROM sales_channels WHERE active=1 ORDER BY name').all(), channelPrices:db.prepare('SELECT product_id,channel_key,sale_price FROM channel_prices').all(), optionGroups:getOptionGroups(), discountPresets:getDiscountPresets(), bestSellers:db.prepare('SELECT oi.product_id,sum(oi.quantity) qty FROM order_items oi JOIN products p ON p.id=oi.product_id WHERE p.active=1 GROUP BY oi.product_id ORDER BY qty DESC,oi.product_id LIMIT 10').all(), loyaltySettings:getLoyaltySettings(), features:Object.fromEntries(db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all().map(x=>[x.feature_key,!!x.enabled])), membersEnabled:enabled('members') }));
+app.put('/api/discount-presets', (req,res)=>{const values=[...new Set((Array.isArray(req.body?.values)?req.body.values:[]).map(Number).filter(value=>Number.isFinite(value)&&value>0))].sort((a,b)=>a-b).slice(0,20);db.prepare("INSERT INTO app_metadata(key,value) VALUES ('discount_presets',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(values));res.json({ok:true,values});});
 app.get('/api/pricing', (_,res) => res.json(db.prepare(`SELECT p.id product_id,p.name,p.price store_price,c.channel_key,c.name channel_name,c.gp_percent,cp.sale_price,round(p.price/(1-c.gp_percent/100),2) suggested_price FROM products p CROSS JOIN sales_channels c LEFT JOIN channel_prices cp ON cp.product_id=p.id AND cp.channel_key=c.channel_key WHERE p.active=1 AND c.active=1 ORDER BY p.name,c.name`).all()));
 app.get('/api/costing', (_,res) => {
   const products=db.prepare('SELECT id,name,price,category,target_margin FROM products WHERE active=1 ORDER BY sort_order,category,name').all();
@@ -634,17 +637,19 @@ app.put('/api/admin/products/:id/costing', admin, (req,res) => {
 });
 
 app.post('/api/admin/products', admin, (req,res) => {
-  const {name,price,category,emoji='☕',stockKey=null,deductStock=true,imagePath=null,imageData=null,customOptions=[]}=req.body||{};
+  const {name,price,defaultDiscount=0,category,emoji='☕',stockKey=null,deductStock=true,imagePath=null,imageData=null,customOptions=[]}=req.body||{};
   if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง');
+  if(!Number.isFinite(Number(defaultDiscount))||Number(defaultDiscount)<0||Number(defaultDiscount)>Number(price))return fail(res,'ส่วนลดประจำเมนูไม่ถูกต้อง');
   const nextOrder=Number(db.prepare('SELECT coalesce(max(sort_order),-1)+1 AS n FROM products').get().n);
-  const result=db.prepare('INSERT INTO products(name,price,category,emoji,stock_key,deduct_stock,image_path,image_data,custom_options_json,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?)').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),stockKey,deductStock?1:0,imagePath||null,imageData||null,JSON.stringify(normalizeCustomOptions(customOptions)),nextOrder);
+  const result=db.prepare('INSERT INTO products(name,price,default_discount,category,emoji,stock_key,deduct_stock,image_path,image_data,custom_options_json,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(name.trim(),Number(price),Number(defaultDiscount),category||'other',emoji.slice(0,8),stockKey,deductStock?1:0,imagePath||null,imageData||null,JSON.stringify(normalizeCustomOptions(customOptions)),nextOrder);
   res.status(201).json({id:result.lastInsertRowid});
 });
 
 app.put('/api/admin/products/:id', admin, (req,res) => {
-  const {name,price,category,emoji='☕',active=true,stockKey=null,deductStock=true,imagePath=null,imageData=null,customOptions=[]}=req.body||{};
+  const {name,price,defaultDiscount=0,category,emoji='☕',active=true,stockKey=null,deductStock=true,imagePath=null,imageData=null,customOptions=[]}=req.body||{};
   if(typeof name!=='string'||!name.trim()||!Number.isFinite(Number(price))||Number(price)<0)return fail(res,'ข้อมูลเมนูไม่ถูกต้อง');
-  const r=db.prepare('UPDATE products SET name=?,price=?,category=?,emoji=?,active=?,stock_key=?,deduct_stock=?,image_path=?,image_data=?,custom_options_json=? WHERE id=?').run(name.trim(),Number(price),category||'other',emoji.slice(0,8),active?1:0,stockKey,deductStock?1:0,imagePath||null,imageData||null,JSON.stringify(normalizeCustomOptions(customOptions)),req.params.id);
+  if(!Number.isFinite(Number(defaultDiscount))||Number(defaultDiscount)<0||Number(defaultDiscount)>Number(price))return fail(res,'ส่วนลดประจำเมนูไม่ถูกต้อง');
+  const r=db.prepare('UPDATE products SET name=?,price=?,default_discount=?,category=?,emoji=?,active=?,stock_key=?,deduct_stock=?,image_path=?,image_data=?,custom_options_json=? WHERE id=?').run(name.trim(),Number(price),Number(defaultDiscount),category||'other',emoji.slice(0,8),active?1:0,stockKey,deductStock?1:0,imagePath||null,imageData||null,JSON.stringify(normalizeCustomOptions(customOptions)),req.params.id);
   return r.changes?res.json({ok:true}):fail(res,'ไม่พบรายการสินค้า',404);
 });
 
