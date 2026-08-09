@@ -741,12 +741,28 @@ function bulkPartsToFormula(draft) {
 }
 
 function bulkDraftFor(product) {
-  const level=$('#recipe-book-level')?.value || 'normal', key=`${product.id}:${level}`;
+  const key=String(product.id);
   if (!bulkRecipeDrafts.has(key)) {
-    const recipe=recipeForProduct(product), row=normalizeSweetnessLevels(recipe?.sweetnessLevels,product).find(item=>item.level===level);
-    bulkRecipeDrafts.set(key,{...formulaToBulkParts(row?.formula),productId:product.id,level,dirty:false});
+    const recipe=recipeForProduct(product), row=normalizeSweetnessLevels(recipe?.sweetnessLevels,product).find(item=>item.level==='normal');
+    bulkRecipeDrafts.set(key,{...formulaToBulkParts(row?.formula),productId:product.id,dirty:false});
   }
   return bulkRecipeDrafts.get(key);
+}
+
+function deriveSweetnessDraft(normal, level) {
+  const factor={none:0,low:.5,normal:1,high:1.5}[level] ?? 1;
+  const result={...normal,sweet:Math.round((Number(normal.sweet)||0)*factor*10)/10};
+  const compensation=(Number(normal.sweet)||0)-result.sweet;
+  if(Number(normal.water)>0)result.water=Math.max(0,Math.round(((Number(normal.water)||0)+compensation)*10)/10);
+  else result.fresh=Math.max(0,Math.round(((Number(normal.fresh)||0)+compensation)*10)/10);
+  return result;
+}
+
+function renderDerivedSweetnessTable(root, normal) {
+  let table=root.querySelector('.recipe-derived-table');
+  if(!table){table=document.createElement('div');table.className='recipe-derived-table';root.append(table);}
+  const rows=Object.keys(SWEETNESS_LABELS).map(level=>({level,label:SWEETNESS_LABELS[level],draft:deriveSweetnessDraft(normal,level)}));
+  table.innerHTML=`<div class="recipe-derived-head"><b>ระดับ</b><b>กาแฟ</b><b>หวาน</b><b>ข้นจืด</b><b>นมสด</b><b>น้ำ</b><b>รวม</b></div>${rows.map(row=>`<div><strong>${escapeHtml(row.label)}</strong><span>${row.draft.coffee || 0}</span><span>${row.draft.sweet || 0}</span><span>${row.draft.evaporated || 0}</span><span>${row.draft.fresh || 0}</span><span>${row.draft.water || 0}</span><b>${bulkRecipeTotal(row.draft)} ml</b></div>`).join('')}`;
 }
 
 function renderBulkRecipeFields(product) {
@@ -755,12 +771,12 @@ function renderBulkRecipeFields(product) {
   specs.forEach(([key,label,unit])=>{
     const wrap=document.createElement('label'); wrap.innerHTML=`<span>${label}</span>`;
     if(key==='sweet'){
-      const select=document.createElement('select'); ['นมข้นหวาน','น้ำเชื่อม','ช็อกโกแลต','คาราเมล'].forEach(value=>select.add(new Option(value,value))); select.value=draft.sweetType; select.onchange=()=>{draft.sweetType=select.value;draft.dirty=true;}; wrap.append(select);
+      const select=document.createElement('select'); ['นมข้นหวาน','น้ำเชื่อม','ช็อกโกแลต','คาราเมล'].forEach(value=>select.add(new Option(value,value))); select.value=draft.sweetType; select.onchange=()=>{draft.sweetType=select.value;draft.dirty=true;renderDerivedSweetnessTable(root,draft);}; wrap.append(select);
     }
     const box=document.createElement('span'); box.className='recipe-bulk-number'; const input=document.createElement('input'); input.type='number'; input.inputMode='decimal'; input.min='0'; input.max='160'; input.step='1'; input.value=draft[key] || ''; input.placeholder='0';
-    input.oninput=()=>{draft[key]=Math.max(0,Number(input.value)||0);draft.dirty=true;const total=root.querySelector('output');const sum=bulkRecipeTotal(draft);total.value=`${sum} ml`;total.classList.toggle('is-over',sum>160);}; box.append(input,document.createTextNode(unit)); wrap.append(box); root.append(wrap);
+    input.oninput=()=>{draft[key]=Math.max(0,Number(input.value)||0);draft.dirty=true;const total=root.querySelector('output');const sum=bulkRecipeTotal(draft);total.value=`${sum} ml`;total.classList.toggle('is-over',sum>160);renderDerivedSweetnessTable(root,draft);}; box.append(input,document.createTextNode(unit)); wrap.append(box); root.append(wrap);
   });
-  const totalWrap=document.createElement('label'); totalWrap.className='recipe-bulk-total'; totalWrap.innerHTML='<span>รวม</span>'; const total=document.createElement('output'); const sum=bulkRecipeTotal(draft); total.value=`${sum} ml`; total.classList.toggle('is-over',sum>160); totalWrap.append(total); root.append(totalWrap);
+  const totalWrap=document.createElement('label'); totalWrap.className='recipe-bulk-total'; totalWrap.innerHTML='<span>รวมค่าปกติ</span>'; const total=document.createElement('output'); const sum=bulkRecipeTotal(draft); total.value=`${sum} ml`; total.classList.toggle('is-over',sum>160); totalWrap.append(total); root.append(totalWrap); renderDerivedSweetnessTable(root,draft);
   return root;
 }
 
@@ -772,7 +788,7 @@ async function saveBulkRecipes() {
   try{
     for(const draft of drafts){
       const product=state.products.find(row=>String(row.id)===String(draft.productId)), recipe=recipeForProduct(product) || {items:[],description:''};
-      const levels=normalizeSweetnessLevels(recipe.sweetnessLevels,product).map(row=>row.level===draft.level?{...row,formula:bulkPartsToFormula(draft)}:row);
+      const levels=Object.keys(SWEETNESS_LABELS).map(level=>({level,label:SWEETNESS_LABELS[level],formula:bulkPartsToFormula(deriveSweetnessDraft(draft,level))}));
       await api(`/api/admin/products/${draft.productId}/recipe`,{method:'PUT',body:JSON.stringify({items:recipe.items || [],description:recipe.description || '',sweetnessLevels:levels})});
       draft.dirty=false;
     }
@@ -797,9 +813,7 @@ function renderRecipeBook() {
     const visual = imagePath ? `<img src="${escapeHtml(new URL(imagePath, document.baseURI).href)}" alt="">` : `<span>${escapeHtml(product.emoji || '☕')}</span>`;
     const info = document.createElement('div'); info.className = 'recipe-book-info';
     info.innerHTML = `<div class="recipe-book-title">${visual}<div><strong>${escapeHtml(displayName(product))}</strong><small>${savedItems.length ? `${savedItems.length} วัตถุดิบจากสต็อก` : 'สูตรแนะนำ 16 oz · แก้ไขได้'}</small></div></div><div class="recipe-book-ingredients">${items.map(item => `<span><b>${escapeHtml(displayName(item))}</b> ${escapeHtml(item.quantity)} ${escapeHtml(item.unit || '')}</span>`).join('')}</div><p>${escapeHtml(recipeDescription(recipe, product))}</p>`;
-    const sweetness = document.createElement('div'); sweetness.className = 'recipe-book-sweetness';
-    sweetness.innerHTML = normalizeSweetnessLevels(recipe?.sweetnessLevels, product).map(level => `<span><b>${escapeHtml(level.label)}</b>${escapeHtml(level.formula)}</span>`).join('');
-    info.append(renderBulkRecipeFields(product), sweetness);
+    info.append(renderBulkRecipeFields(product));
     const actions = document.createElement('div'); actions.className = 'recipe-book-actions';
     const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'secondary-btn'; edit.textContent = '✏️ แก้ไข'; edit.onclick = () => { $('#recipe-book-dialog')?.close(); openProductEditor(product); };
     const print = document.createElement('button'); print.type = 'button'; print.className = 'primary-btn'; print.textContent = '🖨️ A4'; print.onclick = () => printRecipeBook([product]);
@@ -839,7 +853,6 @@ $('#btn-open-recipe-book') && ($('#btn-open-recipe-book').onclick = openRecipeBo
 document.querySelector('#recipe-book-dialog .close') && (document.querySelector('#recipe-book-dialog .close').onclick = () => $('#recipe-book-dialog')?.close());
 $('#recipe-book-search') && ($('#recipe-book-search').oninput = renderRecipeBook);
 $('#recipe-book-category') && ($('#recipe-book-category').onchange = renderRecipeBook);
-$('#recipe-book-level') && ($('#recipe-book-level').onchange = renderRecipeBook);
 $('#recipe-book-save-all') && ($('#recipe-book-save-all').onclick = saveBulkRecipes);
 $('#recipe-book-select-all') && ($('#recipe-book-select-all').onclick = () => { const rows = recipeBookRows(); const allSelected = rows.length && rows.every(row => selectedRecipePrintIds.has(String(row.id))); rows.forEach(row => allSelected ? selectedRecipePrintIds.delete(String(row.id)) : selectedRecipePrintIds.add(String(row.id))); renderRecipeBook(); });
 $('#recipe-book-print-selected') && ($('#recipe-book-print-selected').onclick = () => printRecipeBook(state.products.filter(product => selectedRecipePrintIds.has(String(product.id)))));
