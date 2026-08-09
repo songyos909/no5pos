@@ -336,3 +336,42 @@ test('admin menu list can be filtered by product category', async () => {
   assert.match(app, /ยังไม่มีเมนูในหมวดหมู่นี้/);
   assert.match(css, /\.admin-product-filter/);
 });
+
+test('LINE MAN orders support item, bill and actual-received discounts', async () => {
+  const [html, app, server, firebase] = await Promise.all([
+    read('public/index.html'),
+    read('public/app.js'),
+    read('server.js'),
+    read('public/firebase-client.js')
+  ]);
+  for (const id of ['online-actual-received','online-income-summary','receipt-item-discount','receipt-platform-fee','receipt-online-net']) {
+    assert.match(html,new RegExp(`id="${id}"`));
+  }
+  assert.match(app, /itemDiscountPerUnit/);
+  assert.match(app, /onlineActualReceived/);
+  assert.match(app, /ค่าธรรมเนียม/);
+  for (const source of [server,firebase]) {
+    assert.match(source, /itemDiscount/);
+    assert.match(source, /billDiscount/);
+    assert.match(source, /platformFee/);
+    assert.match(source, /onlineActualReceived/);
+    assert.match(source, /ยอดรับจริงจากแพลตฟอร์มไม่ถูกต้อง/);
+  }
+  assert.match(server, /item_discount/);
+  assert.match(server, /bill_discount/);
+  assert.match(server, /platform_fee/);
+});
+
+test('online order numbers and backdated sales persist through both backends', async () => {
+  const html=await read('public/index.html');
+  const app=await read('public/app.js');
+  const server=await read('server.js');
+  const firebase=await read('public/firebase-client.js');
+  for(const id of ['online-order-number','backdate-enabled','backdate-datetime'])assert.match(html,new RegExp(`id="${id}"`));
+  for(const source of [app,server,firebase]){
+    assert.match(source,/externalOrderNumber/);
+    assert.match(source,/soldAt/);
+  }
+  assert.match(server,/external_order_number/);
+  assert.match(app,/external_order_number/);
+});

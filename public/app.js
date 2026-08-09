@@ -160,7 +160,35 @@ function saleBasePrice(product) {
   return saved&&Number.isFinite(Number(saved.sale_price))?Number(saved.sale_price):Number(product?.price||0);
 }
 function cartUnitPrice(item){return saleBasePrice(item.product)+modifierExtra(item.options||{},item.product);}
-function repriceCart(){state.cart.forEach(item=>{item.unitPrice=cartUnitPrice(item);});}
+function itemDiscountPerUnit(item){return Math.min(cartUnitPrice(item),Math.max(0,Number(item?.itemDiscount)||0));}
+function cartNetUnitPrice(item){return Math.max(0,cartUnitPrice(item)-itemDiscountPerUnit(item));}
+function repriceCart(){state.cart.forEach(item=>{item.unitPrice=cartUnitPrice(item);item.itemDiscount=itemDiscountPerUnit(item);});}
+
+function calculateCartTotals() {
+  const subtotal=state.cart.reduce((sum,item)=>sum+cartUnitPrice(item)*item.qty,0);
+  const itemDiscount=state.cart.reduce((sum,item)=>sum+itemDiscountPerUnit(item)*item.qty,0);
+  const afterItemDiscount=Math.max(0,subtotal-itemDiscount);
+  let memberDiscount=0;
+  const useReward=$('#member-use-free-cup');
+  if(useReward?.checked&&currentMember&&currentMember.points>=state.loyaltySettings.rewardPoints){
+    memberDiscount=Math.min(afterItemDiscount,loyaltyRewardForCart().discount);
+  }
+  const billDiscount=Math.min(Math.max(0,Number($('#discount')?.value)||0),Math.max(0,afterItemDiscount-memberDiscount));
+  return {subtotal,itemDiscount,afterItemDiscount,memberDiscount,billDiscount,total:Math.max(0,afterItemDiscount-memberDiscount-billDiscount)};
+}
+
+function updateOnlineIncomeSummary() {
+  const output=$('#online-income-summary');
+  if(!output)return;
+  const online=document.querySelector('input[name="sale-channel"]:checked')?.value==='online';
+  if(!online){output.textContent='';return;}
+  const totals=calculateCartTotals(),channel=selectedOnlineChannel(),gp=Math.max(0,Number(channel?.gp_percent)||0);
+  const calculated=Number((totals.total*(1-gp/100)).toFixed(2));
+  const raw=$('#online-actual-received')?.value;
+  const actual=raw===''||raw==null?calculated:Math.max(0,Number(raw)||0);
+  const fee=Number((totals.total-actual).toFixed(2));
+  output.textContent=`ลูกค้าจ่าย ${money(totals.total)} · ค่าธรรมเนียม ${money(fee)} · ร้านรับจริง ${money(actual)}`;
+}
 
 function updateOnlineChannelUI() {
   const online = document.querySelector('input[name="sale-channel"]:checked')?.value === 'online';
@@ -179,6 +207,7 @@ function updateOnlineChannelUI() {
   repriceCart();
   renderProducts();
   renderCart();
+  updateOnlineIncomeSummary();
 }
 
 function renderOnlineChannelOptions() {
@@ -413,8 +442,8 @@ function loyaltyRewardForCart() {
   if(settings.rewardType==='fixed_discount')return {discount:settings.rewardDiscountAmount,label:`ส่วนลด ${money(settings.rewardDiscountAmount)}`};
   const eligible=state.cart.filter(item=>loyaltyRewardProductEligible(item.product,settings));
   if(!eligible.length)return {discount:0,label:'สินค้าในรายการรางวัล'};
-  const line=eligible.reduce((best,item)=>(item.unitPrice||item.product.price)<(best.unitPrice||best.product.price)?item:best,eligible[0]);
-  const price=Number(line.unitPrice||line.product.price);
+  const line=eligible.reduce((best,item)=>cartNetUnitPrice(item)<cartNetUnitPrice(best)?item:best,eligible[0]);
+  const price=cartNetUnitPrice(line);
   return {discount:settings.rewardMaxPrice>0?Math.min(price,settings.rewardMaxPrice):price,label:`ฟรี ${displayName(line.product)}`};
 }
 function modifierExtra(options, product) {
@@ -614,7 +643,7 @@ function addToCart(product, options = {}) {
   const key = `${product.id}:${JSON.stringify(options)}`;
   const existing = state.cart.find(x => x.key === key);
   if (existing) existing.qty++;
-  else state.cart.push({ product, options, unitPrice: saleBasePrice(product) + modifierExtra(options, product), key, qty: 1 });
+  else state.cart.push({ product, options, unitPrice: saleBasePrice(product) + modifierExtra(options, product), itemDiscount:0, key, qty: 1 });
   renderCart();
   const badge = $('#count');
   if (badge) { badge.classList.remove('pulse'); void badge.offsetWidth; badge.classList.add('pulse'); }
@@ -658,17 +687,30 @@ function renderCart() {
 
       const priceSpan = document.createElement('span');
       priceSpan.style.cssText = 'min-width:64px;text-align:right;font-weight:600;color:var(--primary);';
-      priceSpan.textContent = money((item.unitPrice || item.product.price) * item.qty);
+      const grossLine=cartUnitPrice(item)*item.qty,netLine=cartNetUnitPrice(item)*item.qty;
+      priceSpan.innerHTML = itemDiscountPerUnit(item)>0
+        ? `<small class="cart-original-price">${money(grossLine)}</small>${money(netLine)}`
+        : money(netLine);
 
-      row.append(info, minus, qtySpan, plus, priceSpan);
+      const discountWrap=document.createElement('label');
+      discountWrap.className='cart-item-discount';
+      discountWrap.textContent='ลด/ชิ้น';
+      const discountInput=document.createElement('input');
+      discountInput.type='number';discountInput.min='0';discountInput.step='0.01';discountInput.inputMode='decimal';
+      discountInput.value=String(itemDiscountPerUnit(item)||'');discountInput.placeholder='0';
+      discountInput.setAttribute('aria-label',`ส่วนลดต่อชิ้น ${item.product.name}`);
+      discountInput.onchange=()=>{item.itemDiscount=Math.min(cartUnitPrice(item),Math.max(0,Number(discountInput.value)||0));renderCart();};
+      discountWrap.append(discountInput);
+
+      row.append(info, minus, qtySpan, plus, discountWrap, priceSpan);
       root.append(row);
     });
   }
 
   // Update total
-  const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
-  
-  let memberDiscount = 0;
+  const preliminary=calculateCartTotals();
+  const subtotal = preliminary.afterItemDiscount;
+  let memberDiscount = preliminary.memberDiscount;
   const useFreeCupEl = $('#member-use-free-cup');
   if (useFreeCupEl && useFreeCupEl.checked && currentMember && currentMember.points >= state.loyaltySettings.rewardPoints) {
     const reward=loyaltyRewardForCart();
@@ -679,9 +721,8 @@ function renderCart() {
     }
   }
 
-  const manualDisc = Math.min(Number($('#discount')?.value) || 0, subtotal - memberDiscount);
-  const disc = memberDiscount + manualDisc;
-  const total = subtotal - disc;
+  const totals=calculateCartTotals();
+  const total = totals.total;
   const totalEl = $('#total');
   if (totalEl) {
     if (memberDiscount > 0) {
@@ -695,6 +736,7 @@ function renderCart() {
   if (countEl) countEl.textContent = itemCount;
   const mobileSummary = $('#mobile-cart-summary');
   if (mobileSummary) mobileSummary.textContent = `${itemCount} รายการ · ${money(total)}`;
+  updateOnlineIncomeSummary();
 }
 
 function setMobileCartOpen(open) {
@@ -774,35 +816,44 @@ if (regMemberBtn) {
 // ── Checkout ──────────────────────────────────────────────────
 async function checkout() {
   if (!state.cart.length) return showNotice('เพิ่มสินค้าในตะกร้าก่อนครับ', 'error');
-  const subtotal = state.cart.reduce((s, x) => s + (x.unitPrice || x.product.price) * x.qty, 0);
-  
-  // Calculate member discount
-  let memberDiscount = 0;
+  const totals=calculateCartTotals();
+  let memberDiscount = totals.memberDiscount;
   const useFreeCupEl = $('#member-use-free-cup');
   if (useFreeCupEl && useFreeCupEl.checked && currentMember && currentMember.points >= state.loyaltySettings.rewardPoints) {
-    memberDiscount=Math.min(subtotal,loyaltyRewardForCart().discount);
     if(memberDiscount<=0)return showNotice('ตะกร้ายังไม่มีสินค้าที่ใช้แลกรางวัลได้','error');
   }
 
-  const manualDisc = Math.min(Number($('#discount')?.value) || 0, subtotal - memberDiscount);
+  const manualDisc = totals.billDiscount;
   const disc = memberDiscount + manualDisc;
-  const total = subtotal - disc;
+  const total = totals.total;
   const salesChannel = document.querySelector('input[name="sale-channel"]:checked')?.value || 'store';
   const payType = salesChannel === 'online' ? 'online' : ($('#payment')?.value || 'cash');
   const onlineChannel = salesChannel === 'online' ? selectedOnlineChannel() : null;
   const gpPercent = onlineChannel ? Number(onlineChannel.gp_percent || 0) : 0;
   if (salesChannel === 'online' && (!onlineChannel || gpPercent <= 0)) return showNotice('กรุณาตั้งค่า GP จริงของแพลตฟอร์มก่อนขายออนไลน์', 'error');
+  const actualRaw=$('#online-actual-received')?.value;
+  const onlineActualReceived=salesChannel==='online'&&actualRaw!==''&&actualRaw!=null?Number(actualRaw):null;
+  if(onlineActualReceived!=null&&(!Number.isFinite(onlineActualReceived)||onlineActualReceived<0))return showNotice('ยอดรับจริงต้องเป็นจำนวนตั้งแต่ 0 บาทขึ้นไป','error');
+  const externalOrderNumber=salesChannel==='online'?String($('#online-order-number')?.value||'').trim():'';
+  const backdateEnabled=Boolean($('#backdate-enabled')?.checked);
+  const soldAtRaw=backdateEnabled?$('#backdate-datetime')?.value:'';
+  const soldAt=soldAtRaw?new Date(soldAtRaw):null;
+  if(backdateEnabled&&(!soldAt||!Number.isFinite(soldAt.getTime())||soldAt.getTime()>Date.now()+60000))return showNotice('กรุณาระบุวันและเวลาขายย้อนหลังให้ถูกต้อง','error');
   const redeemFreeCup = memberDiscount > 0;
 
   checkoutPayload = {
-    items: state.cart.map(x => ({ productId: x.product.id, quantity: x.qty, options: x.options })),
+    items: state.cart.map(x => ({ productId: x.product.id, quantity: x.qty, options: x.options, itemDiscount:itemDiscountPerUnit(x) })),
     discount: disc,
     manualDiscount: manualDisc,
+    itemDiscount:totals.itemDiscount,
     totalDue: total,
     paymentType: payType,
     salesChannel,
     onlinePlatform: onlineChannel?.channel_key || null,
     gpPercent,
+    onlineActualReceived,
+    externalOrderNumber:externalOrderNumber||null,
+    soldAt:soldAt?.toISOString()||null,
     memberPhone: currentMember?.phone || null,
     received: total,
     changeDue: 0,
@@ -828,6 +879,11 @@ async function finalizeCheckout() {
     const order = await api('/api/orders', { method: 'POST', body: JSON.stringify(checkoutPayload) });
     state.cart = [];
     if ($('#discount')) $('#discount').value = 0;
+    if ($('#online-actual-received')) $('#online-actual-received').value = '';
+    if ($('#online-order-number')) $('#online-order-number').value = '';
+    if ($('#backdate-enabled')) $('#backdate-enabled').checked = false;
+    if ($('#backdate-datetime')) $('#backdate-datetime').value = '';
+    if ($('#backdate-datetime-field')) $('#backdate-datetime-field').hidden = true;
     if ($('#member-phone')) $('#member-phone').value = '';
     if ($('#member-info')) { $('#member-info').textContent=''; $('#member-info').className='member-info'; }
     if ($('#quick-member-name')) { $('#quick-member-name').value=''; $('#quick-member-name').style.display='none'; }
@@ -876,6 +932,9 @@ function showReceipt(order) {
     if (items.length) {
       itemsEl.innerHTML = items.map(x => {
         const quantity=Number(x.quantity)||0,unitPrice=Number(x.unit_price)||0;
+        let pricingOptions=x.options||{};if(!x.options&&x.options_json)try{pricingOptions=typeof x.options_json==='string'?JSON.parse(x.options_json):x.options_json;}catch{}
+        const itemDiscount=Math.max(0,Number(x.item_discount??x.itemDiscount??pricingOptions?.item_discount_per_unit)||0);
+        const originalUnitPrice=Math.max(unitPrice,Number(x.original_unit_price??x.originalUnitPrice??pricingOptions?.original_unit_price)||unitPrice+itemDiscount);
         const modifiers=receiptModifierDetails(x).map(detail=>
           `<div style="display:flex;justify-content:space-between;padding-left:12px;color:#555;font-size:10px;">
             <span>+ ${escapeHtml(detail.text)}</span>
@@ -885,8 +944,9 @@ function showReceipt(order) {
         return `<div style="margin-bottom:6px;">
           <div style="display:flex;justify-content:space-between;">
             <span>${escapeHtml(x.name)} ×${escapeHtml(quantity)}</span>
-            <span>${money(unitPrice*quantity)}</span>
+            <span>${itemDiscount>0?`<small style="text-decoration:line-through;color:#888;">${money(originalUnitPrice*quantity)}</small> `:''}${money(unitPrice*quantity)}</span>
           </div>
+          ${itemDiscount>0?`<div style="display:flex;justify-content:space-between;padding-left:12px;color:#c0392b;font-size:10px;"><span>ส่วนลดรายเมนู</span><span>-${money(itemDiscount*quantity)}</span></div>`:''}
           ${modifiers}
         </div>`;
       }).join('');
@@ -896,10 +956,22 @@ function showReceipt(order) {
   }
 
   set('#receipt-subtotal', money(order.subtotal));
-  set('#receipt-discount', money(order.discount));
+  const itemDiscount=Number(order.itemDiscount??order.item_discount)||0;
+  const billDiscount=Number(order.billDiscount??order.bill_discount??Math.max(0,Number(order.discount||0)-itemDiscount))||0;
+  set('#receipt-item-discount', `-${money(itemDiscount)}`);
+  set('#receipt-discount', `-${money(billDiscount)}`);
   set('#receipt-total', money(order.total));
   set('#receipt-payment', paymentType === 'online' ? 'ออนไลน์ผ่านแพลตฟอร์ม 🌐' : paymentType === 'cash' ? 'เงินสด 💵' : 'สแกน QR 📱');
-  set('#receipt-tx', `บิล: ${order.id} · ${order.salesChannel === 'online' || order.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'}`);
+  const externalOrderNumber=order.externalOrderNumber||order.external_order_number||'';
+  set('#receipt-tx', `บิล: ${externalOrderNumber?`${externalOrderNumber} · ระบบ ${order.id}`:order.id} · ${order.salesChannel === 'online' || order.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'}`);
+
+  const online=order.salesChannel==='online'||order.sales_channel==='online';
+  const platformFee=Number(order.platformFee??order.platform_fee??Math.max(0,Number(order.total||0)-Number(order.onlineNet??order.online_net??(order.total||0))))||0;
+  const onlineNet=Number(order.onlineNet??order.online_net??(order.total||0))||0;
+  const feeRow=$('#receipt-platform-fee-row'),netRow=$('#receipt-online-net-row');
+  if(feeRow)feeRow.style.display=online?'flex':'none';
+  if(netRow)netRow.style.display=online?'flex':'none';
+  if(online){set('#receipt-platform-fee',`-${money(platformFee)}`);set('#receipt-online-net',money(onlineNet));}
 
   const cashRows = ['#receipt-cash-received-row', '#receipt-cash-change-row'];
   cashRows.forEach(s => { const el = $(s); if (el) el.style.display = paymentType === 'cash' ? 'flex' : 'none'; });
@@ -1169,7 +1241,7 @@ if (reportsBtn) {
             const itemSummary = (tx.items || []).map(x => `${x.name}×${x.quantity}`).join(', ');
             row.innerHTML = `
               <div>
-                <b>${escapeHtml(tx.id)}</b> <small style="color:#aaa;">(${escapeHtml(time)})</small>
+                <b>${escapeHtml(tx.external_order_number||tx.externalOrderNumber||tx.id)}</b>${tx.external_order_number||tx.externalOrderNumber?` <small style="color:#aaa;">ระบบ ${escapeHtml(tx.id)}</small>`:''} <small style="color:#aaa;">(${escapeHtml(time)})</small>
                 <div style="font-size:10.5px;color:#8c7366;margin-top:2px;">${escapeHtml(itemSummary || '—')}</div>
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
@@ -2153,8 +2225,19 @@ if (quickAddCategoryBtn) quickAddCategoryBtn.onclick = () => {
 
 const discountEl = $('#discount');
 if (discountEl) discountEl.oninput = renderCart;
+const onlineActualReceivedEl=$('#online-actual-received');
+if(onlineActualReceivedEl)onlineActualReceivedEl.oninput=updateOnlineIncomeSummary;
 document.querySelectorAll('input[name="sale-channel"]').forEach(input => { input.onchange = updateOnlineChannelUI; });
 $('#online-channel') && ($('#online-channel').onchange = updateOnlineChannelUI);
+const backdateEnabledEl=$('#backdate-enabled');
+if(backdateEnabledEl)backdateEnabledEl.onchange=()=>{
+  const field=$('#backdate-datetime-field'),input=$('#backdate-datetime');
+  if(field)field.hidden=!backdateEnabledEl.checked;
+  if(backdateEnabledEl.checked&&input&&!input.value){
+    const local=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
+    input.value=local;
+  }
+};
 
 const checkoutBtn = $('#checkout');
 if (checkoutBtn) checkoutBtn.onclick = checkout;

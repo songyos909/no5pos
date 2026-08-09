@@ -594,6 +594,9 @@ input:focus {
   flex: 1;
   font-weight: 500;
 }
+.cart-item-discount{display:grid;gap:2px;width:64px;color:var(--text-muted);font-size:9px;font-weight:600;text-align:center}
+.cart-item-discount input{width:100%;min-height:34px;padding:4px 5px;border:1px solid var(--panel-border);border-radius:7px;font:600 12px Prompt,sans-serif;text-align:right}
+.cart-original-price{display:block;color:#999;font-size:9px;font-weight:400;text-decoration:line-through}
 
 .line button {
   border: 1px solid var(--panel-border);
@@ -1497,7 +1500,9 @@ dialog:not(#kds-dialog) #firebase-login-btn {
 .online-channel-fields label { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:4px; padding:0; border:0; background:transparent; box-shadow:none; font-size:11px; }
 .online-channel-fields select { min-height:40px; }
 .online-channel-fields output { min-height:40px; padding:9px 11px; border-radius:8px; background:#eaf5fa; color:#235f78; font-size:11px; font-weight:600; }
+.online-channel-fields .online-income-summary{background:#edf8ef;color:#236b35}
 @media (max-width:640px) { .online-channel-fields { grid-template-columns:1fr; } }
+@media (max-width:640px) { .line{flex-wrap:wrap}.line>span:first-child{flex:1 0 calc(100% - 8px)}.cart-item-discount{margin-left:auto} }
 .custom-option-editor { margin:14px 0; padding:14px; border:1px solid #e8d8cc; border-radius:12px; background:#fffaf6; }
 .custom-option-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
 .custom-option-heading h4 { margin:0 0 3px; color:var(--primary); font-size:13px; }
@@ -1656,4 +1661,5 @@ dialog:not(#kds-dialog) > form,dialog:not(#kds-dialog) > :first-child { backgrou
 }
 .option-library-editor{background:#faf8f5;border:1px solid #eadfd5;border-radius:12px;padding:14px}.option-library-editor>label{display:grid;gap:5px;margin:12px 0}
 .option-library-actions{display:flex;gap:8px;justify-content:space-between;margin-top:14px}.danger-btn{background:#fff0f0;border:1px solid #e2a5a5;border-radius:8px;color:#a32222;padding:8px 12px}
+.backdate-fields{grid-column:1/-1;border:1px dashed #dfcec0;border-radius:10px;padding:9px 11px}.backdate-toggle{display:flex!important;align-items:center;gap:8px}.backdate-toggle input{width:auto!important;margin:0}.backdate-fields>label+label{margin-top:8px}
 @media (max-width:720px){.option-library-layout{grid-template-columns:1fr}.option-library-list{max-height:190px}}
