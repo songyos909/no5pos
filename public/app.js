@@ -135,6 +135,9 @@ async function load() {
     renderProducts();
     renderCart();
 
+    // The selling screen is usable now; dashboard requests continue below.
+    setSystemStatus('ready', 'พร้อมขาย');
+
     const todayStats = await api('/api/reports/today');
     const salesEl = $('#sales');
     const ordersEl = $('#orders');
@@ -143,7 +146,7 @@ async function load() {
     if ($('#online-sales')) $('#online-sales').textContent = money(todayStats.onlineNet ?? todayStats.onlineSales);
     if ($('#online-orders')) $('#online-orders').textContent = `${todayStats.onlineOrders || 0} บิล`;
 
-    await renderQuickBrewQueue();
+    void renderQuickBrewQueue();
     setSystemStatus('ready', 'พร้อมขาย');
   } catch (e) {
     setSystemStatus('error', 'เชื่อมต่อไม่สำเร็จ');
