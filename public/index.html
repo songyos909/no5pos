@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260809-35">
+  <link rel="stylesheet" href="./styles.css?v=20260809-36">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -280,6 +280,7 @@
               <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px;">
                 <h3 style="margin:0;">รายการเมนูสินค้าในร้าน</h3>
                 <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+                  <button type="button" class="secondary-btn" id="btn-open-recipe-book" style="padding:6px 12px; font-size:12.5px;">📋 ตารางสูตรชง A4</button>
                   <button type="button" class="secondary-btn" id="btn-open-option-library" style="padding:6px 12px; font-size:12.5px;">🧩 สร้างตัวเลือกเพิ่มเติม</button>
                   <button type="button" class="primary-btn" id="btn-trigger-add-product" style="padding:6px 12px; font-size:12.5px;">+ เพิ่มสินค้าใหม่</button>
                 </div>
@@ -650,6 +651,23 @@
   </dialog>
 
   <!-- Recipe popover tooltip dialog (Shows ingredients list + description) -->
+  <dialog id="recipe-book-dialog" class="touch-dialog recipe-book-dialog">
+    <header>
+      <div><p class="eyebrow">BREWING MANUAL</p><h2>ตารางสูตรชงและคู่มือ A4</h2></div>
+      <button type="button" class="close" aria-label="ปิด">×</button>
+    </header>
+    <section class="recipe-book-toolbar">
+      <label>ค้นหาเมนู<input id="recipe-book-search" type="search" placeholder="ชื่อเมนูหรือวัตถุดิบ"></label>
+      <label>หมวดหมู่<select id="recipe-book-category"><option value="all">ทุกหมวดหมู่</option></select></label>
+      <button type="button" class="secondary-btn" id="recipe-book-select-all">เลือกทั้งหมด</button>
+      <button type="button" class="primary-btn" id="recipe-book-print-selected">🖨️ พิมพ์ที่เลือก A4</button>
+    </section>
+    <div class="recipe-book-summary"><strong id="recipe-book-count">0 สูตร</strong><span>เลือกสูตรที่ต้องการแล้วกดพิมพ์ แต่ละเมนูจะแยกเป็นกระดาษ A4</span></div>
+    <div id="recipe-book-list" class="recipe-book-list"></div>
+  </dialog>
+
+  <section id="recipe-print-sheet" aria-hidden="true"></section>
+
   <dialog id="recipe-popover" style="width: min(420px, 92vw);">
     <form method="dialog" style="padding: 20px;">
       <h3 style="margin: 0 0 12px; font-size: 16px; color: var(--primary); display:flex; align-items:center; gap:8px;" id="recipe-pop-title">☕ สูตรชง</h3>
@@ -853,7 +871,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260809-35"></script>
-  <script src="./app.js?v=20260809-35"></script>
+  <script src="./firebase-client.js?v=20260809-36"></script>
+  <script src="./app.js?v=20260809-36"></script>
 </body>
 </html>
