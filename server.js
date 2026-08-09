@@ -64,6 +64,8 @@ try {
 } catch (e) {
   db.exec("ALTER TABLE recipes ADD COLUMN description TEXT DEFAULT ''");
 }
+try { db.prepare("SELECT sweetness_levels FROM recipes LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE recipes ADD COLUMN sweetness_levels TEXT NOT NULL DEFAULT '[]'"); }
 
 // Migration: Create structured recipe_items table
 db.exec(`
@@ -339,13 +341,14 @@ app.get('/api/recipes', (_,res) => {
   if(!enabled('recipes')) return fail(res,'ยังไม่ได้เปิดฟังก์ชันสูตรชง',403);
   const products = db.prepare('SELECT id, name, emoji FROM products WHERE active=1 ORDER BY name').all();
   const recipes = products.map(p => {
-    const r = db.prepare('SELECT description FROM recipes WHERE product_id=?').get(p.id);
+    const r = db.prepare('SELECT description,sweetness_levels FROM recipes WHERE product_id=?').get(p.id);
     const items = db.prepare('SELECT ri.stock_key, ri.quantity, i.name, i.unit FROM recipe_items ri JOIN inventory i ON i.stock_key=ri.stock_key WHERE ri.product_id=?').all(p.id);
     return {
       id: p.id,
       name: p.name,
       emoji: p.emoji,
       description: r ? r.description : '',
+      sweetnessLevels: JSON.parse(r?.sweetness_levels || '[]'),
       items
     };
   });
@@ -662,18 +665,19 @@ app.delete('/api/admin/products/:id', admin, (req,res) => {
 app.get('/api/admin/products/:id/recipe', admin, (req, res) => {
   const productId = Number(req.params.id);
   const items = db.prepare('SELECT ri.stock_key, ri.quantity, i.name, i.unit, i.cost_per_unit FROM recipe_items ri JOIN inventory i ON i.stock_key=ri.stock_key WHERE ri.product_id=?').all(productId);
-  const recipe = db.prepare('SELECT description FROM recipes WHERE product_id=?').get(productId);
-  res.json({ items, description: recipe ? recipe.description : '' });
+  const recipe = db.prepare('SELECT description,sweetness_levels FROM recipes WHERE product_id=?').get(productId);
+  res.json({ items, description: recipe ? recipe.description : '', sweetnessLevels:JSON.parse(recipe?.sweetness_levels || '[]') });
 });
 
 app.put('/api/admin/products/:id/recipe', admin, (req, res) => {
   const productId = Number(req.params.id);
-  const { items, description } = req.body || {};
-  if (!Array.isArray(items) || typeof description !== 'string') return fail(res, 'ข้อมูลสูตรไม่ถูกต้อง');
+  const { items, description, sweetnessLevels } = req.body || {};
+  if (!Array.isArray(items) || typeof description !== 'string' || !Array.isArray(sweetnessLevels)) return fail(res, 'ข้อมูลสูตรไม่ถูกต้อง');
+  const normalizedSweetness=sweetnessLevels.filter(row=>['none','low','normal','high'].includes(row?.level)).map(row=>({level:row.level,label:String(row.label||'').slice(0,30),formula:String(row.formula||'').slice(0,500)}));
   
   db.transaction(() => {
     // Save recipe description
-    db.prepare("INSERT INTO recipes(product_id,description,ingredients,steps) VALUES (?,?,'','') ON CONFLICT(product_id) DO UPDATE SET description=excluded.description").run(productId, description);
+    db.prepare("INSERT INTO recipes(product_id,description,sweetness_levels,ingredients,steps) VALUES (?,?,?,'','') ON CONFLICT(product_id) DO UPDATE SET description=excluded.description,sweetness_levels=excluded.sweetness_levels").run(productId, description, JSON.stringify(normalizedSweetness));
     
     // Clear old recipe items mapping
     db.prepare('DELETE FROM recipe_items WHERE product_id=?').run(productId);
