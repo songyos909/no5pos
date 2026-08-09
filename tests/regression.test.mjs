@@ -322,3 +322,17 @@ test('loyalty points can be configured for all, category or individual products'
     assert.match(source, /earnOnline/);
   }
 });
+
+test('admin menu list can be filtered by product category', async () => {
+  const [html, app, css] = await Promise.all([
+    read('public/index.html'),
+    read('public/app.js'),
+    read('public/styles.css')
+  ]);
+  assert.match(html, /id="admin-product-category"/);
+  assert.match(html, /id="admin-product-count"/);
+  assert.match(app, /selectedCategory === 'all'/);
+  assert.match(app, /filteredProducts/);
+  assert.match(app, /ยังไม่มีเมนูในหมวดหมู่นี้/);
+  assert.match(css, /\.admin-product-filter/);
+});

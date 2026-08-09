@@ -1636,6 +1636,11 @@ dialog:not(#kds-dialog) > form,dialog:not(#kds-dialog) > :first-child { backgrou
 .admin-order-actions,.choice-order-actions{display:flex;align-items:center;gap:4px;flex:0 0 auto}
 .admin-order-actions button,.choice-order-actions button{min-width:34px;min-height:34px;border:1px solid #dfcec0;border-radius:7px;background:#fff;color:var(--primary);font-weight:700;cursor:pointer}
 .admin-order-actions button:disabled,.choice-order-actions button:disabled{opacity:.35;cursor:not-allowed}
+.admin-product-filter{display:grid;grid-template-columns:auto minmax(180px,1fr) auto;align-items:center;gap:8px;margin:0 0 10px;padding:10px 12px;border:1px solid #f1e7de;border-radius:10px;background:#fffaf6}
+.admin-product-filter label{font-size:13px;font-weight:700;color:var(--text-main)}
+.admin-product-filter select{min-width:0;padding:8px 10px;border:1px solid #dfcec0;border-radius:8px;background:#fff;font:inherit;color:var(--text-main)}
+.admin-product-filter output{font-size:12px;color:var(--text-muted);white-space:nowrap}
+.admin-product-empty{padding:24px 12px;text-align:center;color:var(--text-muted)}
 .option-library-order-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center}
 .option-library-order-row+.option-library-order-row{margin-top:6px}
 .press-drag-handle{touch-action:none;cursor:grab!important;font-size:18px;line-height:1;user-select:none;-webkit-user-select:none}
@@ -1644,6 +1649,8 @@ dialog:not(#kds-dialog) > form,dialog:not(#kds-dialog) > :first-child { backgrou
 .press-drag-sorting [data-sort-id]{transition:transform .12s ease}
 .press-drag-active{position:relative;z-index:3;opacity:.82;outline:2px solid var(--accent);outline-offset:2px;background:#fff8f0!important;box-shadow:0 8px 20px rgba(83,55,42,.18)}
 @media (max-width:640px){
+  .admin-product-filter{grid-template-columns:1fr}
+  .admin-product-filter output{white-space:normal}
   .admin-order-actions{flex-wrap:wrap;justify-content:flex-end}
   .admin-order-actions button{min-width:38px;min-height:38px}
 }

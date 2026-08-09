@@ -1498,15 +1498,45 @@ async function adminLoad() {
   const [allProducts, costingRows] = await Promise.all([api('/api/admin/products'), api('/api/costing')]);
   const costingByProduct = Object.fromEntries(costingRows.map(row => [row.product_id, row]));
   const adminProdsEl = $('#admin-products');
-  if (adminProdsEl) {
-    adminProdsEl.replaceChildren();
-    allProducts.forEach((p,index) => {
+  const adminCategorySelect = $('#admin-product-category');
+  const adminProductCount = $('#admin-product-count');
+  if (adminProdsEl && adminCategorySelect) {
+    const previousCategory = adminCategorySelect.value || 'all';
+    const categoryNames = new Map(state.categories.map(category => [String(category.category_key), displayName(category)]));
+    allProducts.forEach(product => {
+      const key = String(product.category || 'other');
+      if (!categoryNames.has(key)) categoryNames.set(key, key);
+    });
+    const categoryOptions = [new Option(`ทุกหมวด (${allProducts.length})`, 'all')];
+    categoryNames.forEach((name, key) => {
+      const count = allProducts.filter(product => String(product.category || 'other') === key).length;
+      categoryOptions.push(new Option(`${name} (${count})`, key));
+    });
+    adminCategorySelect.replaceChildren(...categoryOptions);
+    adminCategorySelect.value = categoryOptions.some(option => option.value === previousCategory) ? previousCategory : 'all';
+
+    const renderAdminProductRows = () => {
+      const selectedCategory = adminCategorySelect.value || 'all';
+      const filteredProducts = selectedCategory === 'all'
+        ? allProducts
+        : allProducts.filter(product => String(product.category || 'other') === selectedCategory);
+      if (adminProductCount) adminProductCount.textContent = `แสดง ${filteredProducts.length} จาก ${allProducts.length} เมนู`;
+      adminProdsEl.replaceChildren();
+      if (!filteredProducts.length) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-product-empty';
+        empty.textContent = 'ยังไม่มีเมนูในหมวดหมู่นี้';
+        adminProdsEl.append(empty);
+        return;
+      }
+    filteredProducts.forEach((p,index) => {
       const row = document.createElement('div');
       row.dataset.sortId=String(p.id);
       row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid #f5f0eb;font-size:13px;';
 
       const info = document.createElement('span');
-      info.innerHTML = `${escapeHtml(p.emoji)} <b>${escapeHtml(p.name)}</b> — <span style="color:var(--primary);">${money(p.price)}</span> <small style="color:#aaa;">(${escapeHtml(p.category)})</small>${p.active ? '' : ' <span style="color:#c0392b;font-size:10px;font-weight:700;">[ปิดขาย]</span>'}`;
+      const categoryLabel = categoryNames.get(String(p.category || 'other')) || String(p.category || 'other');
+      info.innerHTML = `${escapeHtml(p.emoji)} <b>${escapeHtml(p.name)}</b> — <span style="color:var(--primary);">${money(p.price)}</span> <small style="color:#777;">(${escapeHtml(categoryLabel)})</small>${p.active ? '' : ' <span style="color:#c0392b;font-size:10px;font-weight:700;">[ปิดขาย]</span>'}`;
 
       const costing = costingByProduct[p.id];
       const costInfo = document.createElement('small');
@@ -1524,14 +1554,20 @@ async function adminLoad() {
 
       const actions=document.createElement('span');
       actions.className='admin-order-actions';
-      const handle=document.createElement('button');handle.type='button';handle.className='press-drag-handle';handle.dataset.sortHandle='';handle.textContent='⠿';handle.title='แตะค้างแล้วลากเพื่อจัดลำดับ';handle.setAttribute('aria-label','ลากจัดลำดับเมนู');
-      const up=document.createElement('button');up.type='button';up.textContent='↑';up.title='เลื่อนเมนูขึ้น';up.disabled=index===0;up.onclick=()=>saveProductOrder(allProducts,index,-1).catch(error=>showNotice(error.message,'error'));
-      const down=document.createElement('button');down.type='button';down.textContent='↓';down.title='เลื่อนเมนูลง';down.disabled=index===allProducts.length-1;down.onclick=()=>saveProductOrder(allProducts,index,1).catch(error=>showNotice(error.message,'error'));
-      actions.append(handle,up,down,editBtn);
+      if (selectedCategory === 'all') {
+        const handle=document.createElement('button');handle.type='button';handle.className='press-drag-handle';handle.dataset.sortHandle='';handle.textContent='⠿';handle.title='แตะค้างแล้วลากเพื่อจัดลำดับ';handle.setAttribute('aria-label','ลากจัดลำดับเมนู');
+        const up=document.createElement('button');up.type='button';up.textContent='↑';up.title='เลื่อนเมนูขึ้น';up.disabled=index===0;up.onclick=()=>saveProductOrder(allProducts,index,-1).catch(error=>showNotice(error.message,'error'));
+        const down=document.createElement('button');down.type='button';down.textContent='↓';down.title='เลื่อนเมนูลง';down.disabled=index===allProducts.length-1;down.onclick=()=>saveProductOrder(allProducts,index,1).catch(error=>showNotice(error.message,'error'));
+        actions.append(handle,up,down);
+      }
+      actions.append(editBtn);
       row.append(info, actions);
       adminProdsEl.append(row);
     });
-    bindPressDragSort(adminProdsEl,'[data-sort-id]',persistProductOrder);
+      if (selectedCategory === 'all') bindPressDragSort(adminProdsEl,'[data-sort-id]',persistProductOrder);
+    };
+    adminCategorySelect.onchange = renderAdminProductRows;
+    renderAdminProductRows();
   }
 
   // ⑤ Categories table

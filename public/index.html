@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260731-28">
+  <link rel="stylesheet" href="./styles.css?v=20260809-29">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -263,6 +263,11 @@
                   <button type="button" class="secondary-btn" id="btn-open-option-library" style="padding:6px 12px; font-size:12.5px;">🧩 สร้างตัวเลือกเพิ่มเติม</button>
                   <button type="button" class="primary-btn" id="btn-trigger-add-product" style="padding:6px 12px; font-size:12.5px;">+ เพิ่มสินค้าใหม่</button>
                 </div>
+              </div>
+              <div class="admin-product-filter">
+                <label for="admin-product-category">แสดงเมนูตามหมวดหมู่</label>
+                <select id="admin-product-category" aria-label="เลือกหมวดหมู่เมนู"></select>
+                <output id="admin-product-count" aria-live="polite"></output>
               </div>
               <div id="admin-products" class="admin-products-list" style="max-height:280px; overflow-y:auto; border:1px solid #f1e7de; border-radius:10px; padding:10px;"></div>
             </section>
@@ -823,7 +828,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260731-28"></script>
-  <script src="./app.js?v=20260731-28"></script>
+  <script src="./firebase-client.js?v=20260809-29"></script>
+  <script src="./app.js?v=20260809-29"></script>
 </body>
 </html>
