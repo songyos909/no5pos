@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260809-40">
+  <link rel="stylesheet" href="./styles.css?v=20260809-41">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -668,6 +668,8 @@
     <section class="recipe-book-toolbar">
       <label>ค้นหาเมนู<input id="recipe-book-search" type="search" placeholder="ชื่อเมนูหรือวัตถุดิบ"></label>
       <label>หมวดหมู่<select id="recipe-book-category"><option value="all">ทุกหมวดหมู่</option></select></label>
+      <label>ระดับความหวาน<select id="recipe-book-level"><option value="none">ไม่หวาน</option><option value="low">หวานน้อย</option><option value="normal" selected>หวานปกติ</option><option value="high">หวานมาก</option></select></label>
+      <button type="button" class="primary-btn" id="recipe-book-save-all">💾 บันทึกสูตรที่แก้ทั้งหมด</button>
       <button type="button" class="secondary-btn" id="recipe-book-select-all">เลือกทั้งหมด</button>
       <button type="button" class="primary-btn" id="recipe-book-print-selected">🖨️ พิมพ์ที่เลือก A4</button>
     </section>
@@ -881,7 +883,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260809-40"></script>
-  <script src="./app.js?v=20260809-40"></script>
+  <script src="./firebase-client.js?v=20260809-41"></script>
+  <script src="./app.js?v=20260809-41"></script>
 </body>
 </html>

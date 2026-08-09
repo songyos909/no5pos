@@ -1455,6 +1455,11 @@ dialog:not(#kds-dialog) #receipt-dialog header { padding-right:58px; }
 .recipe-book-row.is-guide{border-color:#e7c5a9;background:#fff9f3}.recipe-book-row.is-guide .recipe-book-title small{color:#a45d32;font-weight:700}.recipe-liquid-total{display:block;margin-top:3px;color:#5b8060;font-size:10px!important;font-weight:700}.recipe-liquid-total.is-over{color:#c52f2f}.recipe-sweetness-inputs textarea.is-invalid{border-color:#d83a3a!important;background:#fff2f2}
 @media(max-width:620px){#recipe-book-dialog>header{min-height:96px!important;padding:20px 64px 14px 20px!important}#recipe-book-dialog .recipe-book-toolbar{grid-template-columns:1fr;padding:12px 16px}#recipe-book-dialog .recipe-book-summary{padding:10px 16px}#recipe-book-dialog .recipe-book-list{padding:0 12px 28px}.recipe-book-row{grid-template-columns:24px minmax(0,1fr);gap:9px;padding:11px}.recipe-book-actions{grid-column:2;display:grid;grid-template-columns:1fr 1fr}.recipe-book-actions button{width:100%}}
 
+.recipe-book-toolbar{grid-template-columns:minmax(180px,1fr) 160px 150px auto auto auto}
+.recipe-bulk-fields{display:grid;grid-template-columns:repeat(5,minmax(104px,1fr)) 90px;gap:7px;margin:12px 0;padding:10px;border:1px solid #e6c9b2;border-radius:12px;background:#fff8f1}.recipe-bulk-fields label{display:grid;align-content:start;gap:4px;color:#765342;font-size:10px;font-weight:800}.recipe-bulk-fields select{width:100%;min-height:32px!important;padding:3px;font-size:10px}.recipe-bulk-number{display:grid;grid-template-columns:1fr auto;align-items:center;gap:3px;color:#9b755f}.recipe-bulk-number input{width:100%;min-width:0;min-height:38px!important;padding:5px;text-align:center;font-size:15px;font-weight:800}.recipe-bulk-total output{display:grid;place-items:center;min-height:38px;border-radius:8px;background:#e9f5e9;color:#32613b;font-size:15px;font-weight:900}.recipe-bulk-total output.is-over{background:#ffe5e5;color:#b52222}.recipe-book-save-status{font-size:11px}
+@media(max-width:900px){.recipe-book-toolbar{grid-template-columns:1fr 1fr}.recipe-bulk-fields{grid-template-columns:repeat(3,minmax(92px,1fr))}}
+@media(max-width:520px){.recipe-bulk-fields{grid-template-columns:1fr 1fr}.recipe-bulk-total{grid-column:1/-1}.recipe-book-sweetness{display:none}}
+
 @page{size:A4 portrait;margin:0}
 @media print{
   .recipe-a4-page{position:relative}
