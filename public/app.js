@@ -634,6 +634,77 @@ function showRecipePopover(product) {
 }
 
 // ── Cart ───────────────────────────────────────────────────────
+// Editable recipe table and A4 brewing manual.
+const selectedRecipePrintIds = new Set();
+const recipeForProduct = product => state.recipesData.find(recipe => String(recipe.id) === String(product.id));
+const recipeBookRows = () => {
+  const query = ($('#recipe-book-search')?.value || '').trim().toLowerCase();
+  const category = $('#recipe-book-category')?.value || 'all';
+  return state.products.filter(product => {
+    const recipe = recipeForProduct(product);
+    const searchable = `${displayName(product)} ${(recipe?.items || []).map(displayName).join(' ')} ${recipe?.description || ''}`.toLowerCase();
+    return (category === 'all' || String(product.category) === category) && (!query || searchable.includes(query));
+  });
+};
+
+function renderRecipeBook() {
+  const root = $('#recipe-book-list'); if (!root) return;
+  const category = $('#recipe-book-category');
+  if (category && category.options.length <= 1) state.categories.forEach(row => category.add(new Option(displayName(row), String(row.category_key))));
+  const rows = recipeBookRows();
+  if ($('#recipe-book-count')) $('#recipe-book-count').textContent = `${rows.length} สูตร · เลือก ${rows.filter(row => selectedRecipePrintIds.has(String(row.id))).length}`;
+  root.replaceChildren();
+  if (!rows.length) { root.innerHTML = '<div class="recipe-book-empty">ไม่พบสูตรชงที่ตรงกับการค้นหา</div>'; return; }
+  rows.forEach(product => {
+    const recipe = recipeForProduct(product), items = recipe?.items || [];
+    const row = document.createElement('article'); row.className = `recipe-book-row${items.length ? '' : ' is-incomplete'}`;
+    const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selectedRecipePrintIds.has(String(product.id)); check.setAttribute('aria-label', `เลือกพิมพ์ ${displayName(product)}`);
+    check.onchange = () => { check.checked ? selectedRecipePrintIds.add(String(product.id)) : selectedRecipePrintIds.delete(String(product.id)); renderRecipeBook(); };
+    const imagePath = menuImageFor(product);
+    const visual = imagePath ? `<img src="${escapeHtml(new URL(imagePath, document.baseURI).href)}" alt="">` : `<span>${escapeHtml(product.emoji || '☕')}</span>`;
+    const info = document.createElement('div'); info.className = 'recipe-book-info';
+    info.innerHTML = `<div class="recipe-book-title">${visual}<div><strong>${escapeHtml(displayName(product))}</strong><small>${items.length ? `${items.length} วัตถุดิบ` : 'ยังไม่มีวัตถุดิบ'}</small></div></div><div class="recipe-book-ingredients">${items.length ? items.map(item => `<span><b>${escapeHtml(displayName(item))}</b> ${escapeHtml(item.quantity)} ${escapeHtml(item.unit || '')}</span>`).join('') : '<em>กรุณาเพิ่มสูตรก่อนพิมพ์</em>'}</div><p>${escapeHtml(recipe?.description || 'ยังไม่ได้ระบุขั้นตอนการชง')}</p>`;
+    const actions = document.createElement('div'); actions.className = 'recipe-book-actions';
+    const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'secondary-btn'; edit.textContent = '✏️ แก้ไข'; edit.onclick = () => { $('#recipe-book-dialog')?.close(); openProductEditor(product); };
+    const print = document.createElement('button'); print.type = 'button'; print.className = 'primary-btn'; print.textContent = '🖨️ A4'; print.disabled = !items.length; print.onclick = () => printRecipeBook([product]);
+    actions.append(edit, print); row.append(check, info, actions); root.append(row);
+  });
+}
+
+function recipeStepLines(recipe) {
+  const explicit = String(recipe?.description || '').split(/\n+|[.!?]\s+/).map(line => line.trim()).filter(Boolean);
+  return explicit.length ? explicit.slice(0, 8) : ['เตรียมวัตถุดิบและอุปกรณ์ตามปริมาณ', 'ผสมหรือสกัดตามลำดับของสูตร', 'ตรวจรสชาติ จัดเสิร์ฟ และติดป้ายเมนู'];
+}
+
+function printRecipeBook(products) {
+  const printable = products.filter(product => recipeForProduct(product)?.items?.length);
+  if (!printable.length) return showNotice('เลือกสูตรที่มีวัตถุดิบอย่างน้อย 1 รายการ', 'error');
+  const sheet = $('#recipe-print-sheet'); if (!sheet) return;
+  sheet.innerHTML = printable.map(product => {
+    const recipe = recipeForProduct(product), imagePath = menuImageFor(product);
+    const hero = imagePath ? `<img src="${escapeHtml(new URL(imagePath, document.baseURI).href)}" alt="${escapeHtml(displayName(product))}">` : `<span>${escapeHtml(product.emoji || '☕')}</span>`;
+    const ingredients = recipe.items.map((item, index) => {
+      const stock = state.inventory.find(row => String(row.stock_key) === String(item.stock_key));
+      const icon = stock?.category === 'equipment' ? '🥤' : ({coffee_beans:'🫘',milk:'🥛',tea:'🍃',cocoa:'🍫',syrup:'🍯',sweetness:'🧂'}[stock?.material_type] || '🥄');
+      return `<article><i>${icon}</i><b>${index + 1}</b><strong>${escapeHtml(displayName(item))}</strong><span>${escapeHtml(item.quantity)} ${escapeHtml(item.unit || '')}</span></article>`;
+    }).join('');
+    const steps = recipeStepLines(recipe).map((step, index) => `<li><b>${index + 1}</b><span>${escapeHtml(step)}</span></li>`).join('');
+    return `<article class="recipe-a4-page"><header><div><small>NO.5 CAFE · STANDARD RECIPE</small><h1>${escapeHtml(displayName(product))}</h1><p>สูตรมาตรฐานต่อ 1 เสิร์ฟ</p></div><div class="recipe-a4-hero">${hero}</div></header><section><h2>วัตถุดิบและปริมาณ</h2><div class="recipe-a4-flow">${ingredients}</div></section><section class="recipe-a4-steps"><h2>ขั้นตอนการชง</h2><ol>${steps}</ol></section><footer><span>ตรวจสอบวัตถุดิบ → ชั่งตวง → ชงตามลำดับ → ตรวจคุณภาพ</span><b>NO.5 CAFE POS</b></footer></article>`;
+  }).join('');
+  sheet.setAttribute('aria-hidden', 'false');
+  const cleanup = () => { sheet.setAttribute('aria-hidden', 'true'); window.removeEventListener('afterprint', cleanup); };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(() => window.print(), 80);
+}
+
+function openRecipeBook() { selectedRecipePrintIds.clear(); renderRecipeBook(); $('#recipe-book-dialog')?.showModal(); }
+$('#btn-open-recipe-book') && ($('#btn-open-recipe-book').onclick = openRecipeBook);
+document.querySelector('#recipe-book-dialog .close') && (document.querySelector('#recipe-book-dialog .close').onclick = () => $('#recipe-book-dialog')?.close());
+$('#recipe-book-search') && ($('#recipe-book-search').oninput = renderRecipeBook);
+$('#recipe-book-category') && ($('#recipe-book-category').onchange = renderRecipeBook);
+$('#recipe-book-select-all') && ($('#recipe-book-select-all').onclick = () => { const rows = recipeBookRows(); const allSelected = rows.length && rows.every(row => selectedRecipePrintIds.has(String(row.id))); rows.forEach(row => allSelected ? selectedRecipePrintIds.delete(String(row.id)) : selectedRecipePrintIds.add(String(row.id))); renderRecipeBook(); });
+$('#recipe-book-print-selected') && ($('#recipe-book-print-selected').onclick = () => printRecipeBook(state.products.filter(product => selectedRecipePrintIds.has(String(product.id)))));
+
 function canAddToCart(product, deltaQty = 1) {
   // Menus that do not deduct stock can be sold without a recipe. Firebase
   // legacy products have no deduct_stock field, so keep them sellable too.
