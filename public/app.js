@@ -2521,7 +2521,9 @@ function openNumpad(target,title) { numpadTarget=target;numpadValue=target.value
 function renderNumpad() { $('#numpad-value').textContent=numpadValue||'0';const root=$('#numpad-keys');root.replaceChildren();['1','2','3','4','5','6','7','8','9','.','0','←'].forEach(key=>{const b=document.createElement('button');b.type='button';b.textContent=key;b.onclick=()=>{if(key==='←')numpadValue=numpadValue.slice(0,-1);else if(key==='.'&&numpadTarget?.id==='member-phone')return;else if(key==='.'&&numpadValue.includes('.'))return;else numpadValue+=key;renderNumpad();};root.append(b);}); }
 $('#numpad-clear-btn') && ($('#numpad-clear-btn').onclick=()=>{numpadValue='';renderNumpad();});
 $('#numpad-confirm-btn') && ($('#numpad-confirm-btn').onclick=()=>{if(!numpadTarget)return;numpadTarget.value=numpadValue;numpadTarget.dispatchEvent(new Event('input',{bubbles:true}));$('#numpad-dialog')?.close();});
-['discount','member-phone'].forEach(id=>{const el=$('#'+id);if(el){el.readOnly=true;el.inputMode='none';el.onclick=()=>openNumpad(el,id==='discount'?'ส่วนลด (บาท)':'เบอร์โทรสมาชิก');}});
+const discountKeyboardInput=$('#discount');
+if(discountKeyboardInput){discountKeyboardInput.readOnly=false;discountKeyboardInput.inputMode='decimal';discountKeyboardInput.onclick=null;}
+['member-phone'].forEach(id=>{const el=$('#'+id);if(el){el.readOnly=true;el.inputMode='none';el.onclick=()=>openNumpad(el,'เบอร์โทรสมาชิก');}});
 
 // ── Bootstrap application ─────────────────────────────────────
 load().catch(e => showNotice(e.message, 'error'));
