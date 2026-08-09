@@ -26,10 +26,27 @@ let adminPin = '';
 let currentMember = null;
 let checkoutPayload = null;
 let currentEditRecipeItems = [];
+let currentEditSweetnessLevels = [];
 let uploadedProductImageData = null;
 let productEditorReturnView = null;
 let currentCustomOptionGroups = [];
 const DEFAULT_ONLINE_CHANNEL_KEY = 'lineman';
+const SWEETNESS_LABELS = {none:'ไม่หวาน',low:'หวานน้อย',normal:'หวานปกติ',high:'หวานมาก'};
+function normalizeSweetnessLevels(levels, product = {}) {
+  const saved = Object.fromEntries((Array.isArray(levels) ? levels : []).filter(row => row?.level).map(row => [row.level, String(row.formula || '').slice(0, 500)]));
+  const name = displayName(product).toLowerCase();
+  let defaults;
+  if (name.includes('americano') || name.includes('อเมริกาโน')) defaults = {
+    none:'กาแฟ 40g + น้ำเย็น 140ml', low:'กาแฟ 40g + น้ำเชื่อม 10ml + น้ำเย็น 130ml', normal:'กาแฟ 40g + น้ำเชื่อม 20ml + น้ำเย็น 120ml', high:'กาแฟ 40g + น้ำเชื่อม 30ml + น้ำเย็น 110ml'
+  }; else if (name.includes('mocha') || name.includes('มอคค่า')) defaults = {
+    none:'กาแฟ 40g + โกโก้ไม่หวาน 10g + นมสด 150ml', low:'กาแฟ 40g + ซอสช็อกโกแลต 15ml + นมข้นหวาน 5g + นมสด 140ml', normal:'กาแฟ 40g + ซอสช็อกโกแลต 20ml + นมข้นหวาน 15g + นมสด 130ml', high:'กาแฟ 40g + ซอสช็อกโกแลต 25ml + นมข้นหวาน 25g + นมสด 115ml'
+  }; else if (name.includes('caramel') || name.includes('คาราเมล')) defaults = {
+    none:'กาแฟ 40g + นมข้นจืด 20ml + นมสด 130ml', low:'กาแฟ 40g + วานิลลา 10ml + นมข้นหวาน 5g + นมสด 120ml + คาราเมล 5ml', normal:'กาแฟ 40g + วานิลลา 15ml + นมข้นหวาน 15g + นมสด 110ml + คาราเมล 10ml', high:'กาแฟ 40g + วานิลลา 25ml + นมข้นหวาน 20g + นมสด 95ml + คาราเมล 15ml'
+  }; else defaults = {
+    none:'กาแฟ 40g + นมข้นจืด 30ml + นมสด 125ml', low:'กาแฟ 40g + นมข้นหวาน 15g + นมข้นจืด 30ml + นมสด 110ml', normal:'กาแฟ 40g + นมข้นหวาน 25g + นมข้นจืด 30ml + นมสด 100ml', high:'กาแฟ 40g + นมข้นหวาน 35g + น้ำเชื่อม 5ml + นมข้นจืด 30ml + นมสด 85ml'
+  };
+  return Object.keys(SWEETNESS_LABELS).map(level => ({level,label:SWEETNESS_LABELS[level],formula:saved[level] || defaults[level]}));
+}
 
 // ── Utilities ─────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
@@ -613,6 +630,7 @@ function showRecipePopover(product) {
   const titleEl = $('#recipe-pop-title');
   const itemsEl = $('#recipe-pop-items');
   const descEl = $('#recipe-pop-description');
+  const sweetnessEl = $('#recipe-pop-sweetness');
   if (titleEl) titleEl.textContent = `${product.emoji} สูตรชง: ${product.name}`;
 
   if (itemsEl) {
@@ -629,6 +647,10 @@ function showRecipePopover(product) {
   }
   if (descEl) {
     descEl.textContent = recipe?.description || 'ยังไม่ได้ระบุขั้นตอนการชง';
+  }
+  if (sweetnessEl) {
+    const levels = normalizeSweetnessLevels(recipe?.sweetnessLevels, product);
+    sweetnessEl.innerHTML = `<h4>ระดับความหวาน · แก้ว 16 oz · น้ำแข็งหลอดเล็กเต็มแก้ว</h4>${levels.map(row => `<div><b>${escapeHtml(row.label)}</b><span>${escapeHtml(row.formula)}</span></div>`).join('')}`;
   }
   pop.showModal();
 }
@@ -664,6 +686,9 @@ function renderRecipeBook() {
     const visual = imagePath ? `<img src="${escapeHtml(new URL(imagePath, document.baseURI).href)}" alt="">` : `<span>${escapeHtml(product.emoji || '☕')}</span>`;
     const info = document.createElement('div'); info.className = 'recipe-book-info';
     info.innerHTML = `<div class="recipe-book-title">${visual}<div><strong>${escapeHtml(displayName(product))}</strong><small>${items.length ? `${items.length} วัตถุดิบ` : 'ยังไม่มีวัตถุดิบ'}</small></div></div><div class="recipe-book-ingredients">${items.length ? items.map(item => `<span><b>${escapeHtml(displayName(item))}</b> ${escapeHtml(item.quantity)} ${escapeHtml(item.unit || '')}</span>`).join('') : '<em>กรุณาเพิ่มสูตรก่อนพิมพ์</em>'}</div><p>${escapeHtml(recipe?.description || 'ยังไม่ได้ระบุขั้นตอนการชง')}</p>`;
+    const sweetness = document.createElement('div'); sweetness.className = 'recipe-book-sweetness';
+    sweetness.innerHTML = normalizeSweetnessLevels(recipe?.sweetnessLevels, product).map(level => `<span><b>${escapeHtml(level.label)}</b>${escapeHtml(level.formula)}</span>`).join('');
+    info.append(sweetness);
     const actions = document.createElement('div'); actions.className = 'recipe-book-actions';
     const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'secondary-btn'; edit.textContent = '✏️ แก้ไข'; edit.onclick = () => { $('#recipe-book-dialog')?.close(); openProductEditor(product); };
     const print = document.createElement('button'); print.type = 'button'; print.className = 'primary-btn'; print.textContent = '🖨️ A4'; print.disabled = !items.length; print.onclick = () => printRecipeBook([product]);
@@ -689,7 +714,8 @@ function printRecipeBook(products) {
       return `<article><i>${icon}</i><b>${index + 1}</b><strong>${escapeHtml(displayName(item))}</strong><span>${escapeHtml(item.quantity)} ${escapeHtml(item.unit || '')}</span></article>`;
     }).join('');
     const steps = recipeStepLines(recipe).map((step, index) => `<li><b>${index + 1}</b><span>${escapeHtml(step)}</span></li>`).join('');
-    return `<article class="recipe-a4-page"><header><div><small>NO.5 CAFE · STANDARD RECIPE</small><h1>${escapeHtml(displayName(product))}</h1><p>สูตรมาตรฐานต่อ 1 เสิร์ฟ</p></div><div class="recipe-a4-hero">${hero}</div></header><section><h2>วัตถุดิบและปริมาณ</h2><div class="recipe-a4-flow">${ingredients}</div></section><section class="recipe-a4-steps"><h2>ขั้นตอนการชง</h2><ol>${steps}</ol></section><footer><span>ตรวจสอบวัตถุดิบ → ชั่งตวง → ชงตามลำดับ → ตรวจคุณภาพ</span><b>NO.5 CAFE POS</b></footer></article>`;
+    const sweetTable = normalizeSweetnessLevels(recipe?.sweetnessLevels, product).map(level => `<tr><th>${escapeHtml(level.label)}</th><td>${escapeHtml(level.formula)}</td></tr>`).join('');
+    return `<article class="recipe-a4-page"><header><div><small>NO.5 CAFE · STANDARD RECIPE</small><h1>${escapeHtml(displayName(product))}</h1><p>สูตรมาตรฐานต่อ 1 เสิร์ฟ · แก้ว 16 oz · น้ำแข็งหลอดเล็ก</p></div><div class="recipe-a4-hero">${hero}</div></header><section><h2>วัตถุดิบและปริมาณ</h2><div class="recipe-a4-flow">${ingredients}</div></section><section class="recipe-a4-sweetness"><h2>ตารางระดับความหวาน</h2><table><tbody>${sweetTable}</tbody></table></section><section class="recipe-a4-steps"><h2>ขั้นตอนการชง</h2><ol>${steps}</ol></section><footer><span>ตรวจสอบวัตถุดิบ → ชั่งตวง → ชงตามลำดับ → ตรวจคุณภาพ</span><b>NO.5 CAFE POS</b></footer></article>`;
   }).join('');
   sheet.setAttribute('aria-hidden', 'false');
   const cleanup = () => { sheet.setAttribute('aria-hidden', 'true'); window.removeEventListener('afterprint', cleanup); };
@@ -2050,6 +2076,14 @@ $('#btn-delete-option-group') && ($('#btn-delete-option-group').onclick=async()=
   try{await api(`/api/admin/option-groups/${encodeURIComponent(optionGroupEditingId)}`,{method:'DELETE'});currentCustomOptionGroups=currentCustomOptionGroups.filter(item=>item.id!==optionGroupEditingId);await load();resetOptionGroupEditor();renderCustomOptionEditor();showNotice('ลบกลุ่มตัวเลือกแล้ว');}catch(error){showNotice(error.message,'error');}
 });
 
+function setSweetnessEditor(levels, product) {
+  currentEditSweetnessLevels = normalizeSweetnessLevels(levels, product);
+  currentEditSweetnessLevels.forEach(row => { const input = $(`#recipe-sweet-${row.level}`); if (input) input.value = row.formula; });
+}
+function readSweetnessEditor() {
+  return Object.keys(SWEETNESS_LABELS).map(level => ({level,label:SWEETNESS_LABELS[level],formula:String($(`#recipe-sweet-${level}`)?.value || '').trim().slice(0,500)}));
+}
+
 async function openProductEditor(product) {
   // Close settings → bounce to home register screen, then show editor overlay
   const settingsDialog = $('#settings');
@@ -2084,9 +2118,11 @@ async function openProductEditor(product) {
       const recipe = await api(`/api/admin/products/${product.id}/recipe`);
       currentEditRecipeItems = recipe.items || [];
       if ($('#edit-recipe-description')) $('#edit-recipe-description').value = recipe.description || '';
+      setSweetnessEditor(recipe.sweetnessLevels, product);
     } catch {
       currentEditRecipeItems = [];
       if ($('#edit-recipe-description')) $('#edit-recipe-description').value = '';
+      setSweetnessEditor([], product);
     }
   } else {
     currentCustomOptionGroups = [];
@@ -2102,6 +2138,7 @@ async function openProductEditor(product) {
     if ($('#edit-prod-active')) $('#edit-prod-active').checked = true;
     if ($('#edit-prod-deduct-stock')) $('#edit-prod-deduct-stock').checked = true;
     if ($('#edit-recipe-description')) $('#edit-recipe-description').value = '';
+    setSweetnessEditor([], {name:'ลาเต้'});
     if ($('#edit-prod-title')) $('#edit-prod-title').textContent = '➕ เพิ่มสินค้าใหม่';
     const delBtn = $('#btn-delete-product');
     if (delBtn) delBtn.style.display = 'none';
@@ -2243,6 +2280,7 @@ if (saveProductBtn) {
     const active = !!$('#edit-prod-active')?.checked;
     const deductStock = !!$('#edit-prod-deduct-stock')?.checked;
     const description = ($('#edit-recipe-description')?.value || '').trim();
+    const sweetnessLevels = readSweetnessEditor();
     const customOptions = normalizeCustomOptionGroups(currentCustomOptionGroups);
 
     if (!name || isNaN(price) || price < 0) return alert('กรอกชื่อสินค้าและราคาให้ถูกต้อง');
@@ -2265,7 +2303,7 @@ if (saveProductBtn) {
       // Save structured recipe
       await api(`/api/admin/products/${productId}/recipe`, {
         method: 'PUT',
-        body: JSON.stringify({ items: currentEditRecipeItems, description })
+        body: JSON.stringify({ items: currentEditRecipeItems, description, sweetnessLevels })
       });
 
       closeProductEditorAndReturn();

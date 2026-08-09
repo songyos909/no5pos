@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260809-36">
+  <link rel="stylesheet" href="./styles.css?v=20260809-37">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -543,6 +543,15 @@
         <div style="border-top:1px dashed #eadfd5; padding-top:14px; margin-bottom: 16px;">
           <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px; color:var(--primary);">คำอธิบายขั้นตอนการชง (ช่องเดียว)</label>
           <textarea id="edit-recipe-description" rows="3" style="width:100%; border:1px solid #ded2c8; border-radius:8px; padding:8px; font-size:12.5px; font-family:inherit;" placeholder="อธิบายขั้นตอนการทำหรือสูตรชงสั้นๆ..."></textarea>
+          <section class="recipe-sweetness-editor">
+            <div><h4>🍯 ตารางระดับความหวาน แก้ว 16 oz</h4><small>แก้ไขสูตรแต่ละระดับได้โดยตรง ข้อมูลนี้จะแสดงในหน้าเมนูและเอกสาร A4</small></div>
+            <div class="recipe-sweetness-inputs">
+              <label>ไม่หวาน<textarea id="recipe-sweet-none" rows="2"></textarea></label>
+              <label>หวานน้อย<textarea id="recipe-sweet-low" rows="2"></textarea></label>
+              <label>หวานปกติ<textarea id="recipe-sweet-normal" rows="2"></textarea></label>
+              <label>หวานมาก<textarea id="recipe-sweet-high" rows="2"></textarea></label>
+            </div>
+          </section>
         </div>
         
         <!-- Form Actions with Delete Button -->
@@ -678,6 +687,7 @@
       <div style="font-size: 13.5px;">
         <label style="font-weight: 700; display: block; margin-bottom: 4px; font-size: 11.5px; color: var(--text-muted);">คำอธิบายขั้นตอนการปรุง:</label>
         <div id="recipe-pop-description" style="white-space: pre-wrap; background: #faf8f5; padding: 10px; border-radius: 8px; border: 1px solid #f1e7de; max-height:150px; overflow-y:auto; line-height:1.6; font-size:12.5px;"></div>
+        <div id="recipe-pop-sweetness" class="recipe-pop-sweetness"></div>
       </div>
       <button type="button" class="primary-btn" onclick="document.getElementById('recipe-popover').close()" style="width: 100%; margin-top: 14px; padding: 10px; border-radius:8px;">ปิดหน้าต่างสูตร</button>
     </form>
@@ -871,7 +881,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260809-36"></script>
-  <script src="./app.js?v=20260809-36"></script>
+  <script src="./firebase-client.js?v=20260809-37"></script>
+  <script src="./app.js?v=20260809-37"></script>
 </body>
 </html>
