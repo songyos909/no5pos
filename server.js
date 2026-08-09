@@ -49,6 +49,12 @@ try {
   db.exec("ALTER TABLE orders ADD COLUMN received REAL DEFAULT 0");
   db.exec("ALTER TABLE orders ADD COLUMN change_due REAL DEFAULT 0");
 }
+try { db.prepare("SELECT item_discount FROM orders LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE orders ADD COLUMN item_discount REAL NOT NULL DEFAULT 0"); }
+try { db.prepare("SELECT bill_discount FROM orders LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE orders ADD COLUMN bill_discount REAL NOT NULL DEFAULT 0"); }
+try { db.prepare("SELECT platform_fee FROM orders LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE orders ADD COLUMN platform_fee REAL NOT NULL DEFAULT 0"); }
 
 // Migration: Add description column to recipes if it doesn't exist
 try {
@@ -342,7 +348,7 @@ app.get('/api/recipes', (_,res) => {
 });
 
 app.post('/api/orders', (req,res) => {
-  const {items, discount=0, manualDiscount=null, paymentType, salesChannel='store', onlinePlatform=null, memberPhone=null, received=0, redeemFreeCup=false} = req.body || {};
+  const {items, discount=0, manualDiscount=null, paymentType, salesChannel='store', onlinePlatform=null, onlineActualReceived=null, memberPhone=null, received=0, redeemFreeCup=false} = req.body || {};
   const requestedSalesChannel=salesChannel==='online'?'online':'store';
   if (!Array.isArray(items) || !items.length || (requestedSalesChannel==='store'&&!['cash','qr'].includes(paymentType))) return fail(res,'Invalid payment data');
   const requestedDiscount=Number(manualDiscount ?? discount);
@@ -354,7 +360,7 @@ app.post('/api/orders', (req,res) => {
       const channel=normalizedSalesChannel==='online'?db.prepare('SELECT channel_key,gp_percent FROM sales_channels WHERE channel_key=? AND active=1').get(String(onlinePlatform||'')):null;
       if(normalizedSalesChannel==='online'&&(!channel||Number(channel.gp_percent)<=0||Number(channel.gp_percent)>=100)) throw Error('กรุณาตั้งค่า GP จริงของแพลตฟอร์ม');
       const normalizedPlatform=channel?.channel_key||null, normalizedGp=channel?Number(channel.gp_percent):0;
-      const findProduct=db.prepare('SELECT * FROM products WHERE id=?'); let subtotal=0; const lines=[];
+      const findProduct=db.prepare('SELECT * FROM products WHERE id=?'); let subtotal=0,itemDiscountTotal=0; const lines=[];
       for (const row of items) {
         const product=findProduct.get(Number(row.productId)), qty=Number(row.quantity);
         if(!product || !product.active || !Number.isInteger(qty) || qty<1 || qty>99) throw Error('Invalid order item');
@@ -362,8 +368,12 @@ app.post('/api/orders', (req,res) => {
         const selected=selectedCustomOptions(product,raw,normalizedSalesChannel==='online');
         const options={custom:selected.custom,custom_labels:selected.custom_labels,custom_details:selected.custom_details};
         const savedPrice=channel?db.prepare('SELECT sale_price FROM channel_prices WHERE product_id=? AND channel_key=?').get(product.id,channel.channel_key):null;
-        const unitPrice=Number(savedPrice?.sale_price??product.price)+selected.extra;
-        subtotal+=unitPrice*qty; lines.push({product,qty,options,unitPrice});
+        const originalUnitPrice=Number(savedPrice?.sale_price??product.price)+selected.extra;
+        const itemDiscount=Math.max(0,Number(row.itemDiscount)||0);
+        if(!Number.isFinite(itemDiscount)||itemDiscount>originalUnitPrice)throw Error(`ส่วนลดเมนู ${product.name_th||product.name} ไม่ถูกต้อง`);
+        const unitPrice=Number((originalUnitPrice-itemDiscount).toFixed(2));
+        options.original_unit_price=originalUnitPrice;options.item_discount_per_unit=itemDiscount;
+        subtotal+=originalUnitPrice*qty;itemDiscountTotal+=itemDiscount*qty;lines.push({product,qty,options,unitPrice,originalUnitPrice,itemDiscount});
       }
       const member=memberPhone&&enabled('members')?db.prepare('SELECT points FROM members WHERE phone=?').get(memberPhone):null;
       const loyaltySettings=getLoyaltySettings();
@@ -374,13 +384,17 @@ app.post('/api/orders', (req,res) => {
       const freeProductDiscount=rewardLine?(loyaltySettings.rewardMaxPrice>0?Math.min(rewardLine.unitPrice,loyaltySettings.rewardMaxPrice):rewardLine.unitPrice):0;
       const rewardDiscount=redeemFreeCup?(loyaltySettings.rewardType==='fixed_discount'?loyaltySettings.rewardDiscountAmount:freeProductDiscount):0;
       const effectiveManual=manualDiscount==null&&redeemFreeCup?Math.max(0,requestedDiscount-rewardDiscount):requestedDiscount;
-      const finalDiscount=Math.min(effectiveManual+rewardDiscount,subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
+      const billDiscount=Math.min(effectiveManual+rewardDiscount,Math.max(0,subtotal-itemDiscountTotal));
+      const finalDiscount=Math.min(itemDiscountTotal+billDiscount,subtotal), total=subtotal-finalDiscount, orderId=id(), now=new Date().toISOString();
       for(const {product,qty} of lines) if(product.deduct_stock) for(const item of requireRecipe(product)) { const stock=db.prepare('SELECT name,quantity FROM inventory WHERE stock_key=?').get(item.stock_key); if(!stock || stock.quantity<item.quantity*qty) throw Error(`Insufficient stock: ${stock?.name||item.stock_key}`); }
-      const onlineNet=normalizedSalesChannel==='online'?Number((total*(1-normalizedGp/100)).toFixed(2)):total;
+      const requestedOnlineNet=onlineActualReceived==null||onlineActualReceived===''?null:Number(onlineActualReceived);
+      if(requestedOnlineNet!=null&&(!Number.isFinite(requestedOnlineNet)||requestedOnlineNet<0||requestedOnlineNet>total))throw Error('ยอดรับจริงจากแพลตฟอร์มไม่ถูกต้อง');
+      const onlineNet=normalizedSalesChannel==='online'?(requestedOnlineNet??Number((total*(1-normalizedGp/100)).toFixed(2))):total;
+      const platformFee=normalizedSalesChannel==='online'?Number((total-onlineNet).toFixed(2)):0;
       const normalizedReceived=normalizedPaymentType==='cash'?Number(received):total;
       if(!Number.isFinite(normalizedReceived)||normalizedReceived<total) throw Error('ยอดเงินที่รับไม่เพียงพอ');
       const normalizedChange=normalizedPaymentType==='cash'?Number((normalizedReceived-total).toFixed(2)):0;
-      db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, total, payment_type, sales_channel, online_platform, gp_percent, online_net, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,total,normalizedPaymentType,normalizedSalesChannel,normalizedPlatform,normalizedGp,onlineNet,memberPhone||null,normalizedReceived,normalizedChange);
+      db.prepare('INSERT INTO orders (id, created_at, subtotal, discount, item_discount, bill_discount, total, payment_type, sales_channel, online_platform, gp_percent, online_net, platform_fee, member_phone, received, change_due) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(orderId,now,subtotal,finalDiscount,itemDiscountTotal,billDiscount,total,normalizedPaymentType,normalizedSalesChannel,normalizedPlatform,normalizedGp,onlineNet,platformFee,memberPhone||null,normalizedReceived,normalizedChange);
       for(const {product,qty,options,unitPrice} of lines) { db.prepare('INSERT INTO order_items(order_id,product_id,name,unit_price,quantity,options_json) VALUES (?,?,?,?,?,?)').run(orderId,product.id,product.name_th||product.name,unitPrice,qty,JSON.stringify(options)); if(product.deduct_stock) for(const item of requireRecipe(product)) { db.prepare('UPDATE inventory SET quantity=quantity-? WHERE stock_key=?').run(item.quantity*qty,item.stock_key); db.prepare('INSERT INTO stock_movements(stock_key,quantity,reason,order_id,created_at) VALUES (?,?,?,?,?)').run(item.stock_key,-item.quantity*qty,'sale',orderId,now); } }
       
       let memberPoints = 0, pointsEarned = 0;
@@ -397,7 +411,7 @@ app.post('/api/orders', (req,res) => {
           db.prepare('UPDATE members SET points=? WHERE phone=?').run(newPoints, memberPhone);
           memberPoints = newPoints;
       }
-      return {id:orderId,subtotal,discount:finalDiscount,total,createdAt:now,paymentType:normalizedPaymentType,salesChannel:normalizedSalesChannel,onlinePlatform:normalizedPlatform,gpPercent:normalizedGp,onlineNet,memberPhone,received:normalizedReceived,changeDue:normalizedChange,memberPoints,pointsEarned,items:lines.map(x=>({name:x.product.name_th||x.product.name,quantity:x.qty,unit_price:x.unitPrice,options:x.options}))};
+      return {id:orderId,subtotal,discount:finalDiscount,itemDiscount:itemDiscountTotal,billDiscount,total,createdAt:now,paymentType:normalizedPaymentType,salesChannel:normalizedSalesChannel,onlinePlatform:normalizedPlatform,gpPercent:normalizedGp,onlineNet,platformFee,memberPhone,received:normalizedReceived,changeDue:normalizedChange,memberPoints,pointsEarned,items:lines.map(x=>({name:x.product.name_th||x.product.name,quantity:x.qty,unit_price:x.unitPrice,original_unit_price:x.originalUnitPrice,item_discount:x.itemDiscount,options:x.options}))};
     })();
     res.status(201).json(order);
   } catch(e) { fail(res,e.message); }
@@ -530,12 +544,15 @@ app.get('/api/reports/transactions', (req, res) => {
         created_at: o.created_at,
         subtotal,
         discount,
+        item_discount: lineFiltered?0:Number(o.item_discount||0),
+        bill_discount: lineFiltered?0:Number(o.bill_discount||0),
         total,
         payment_type: o.payment_type,
         sales_channel: o.sales_channel || 'store',
         online_platform: o.online_platform,
         gp_percent: gpPercent,
         online_net: lineFiltered&&o.sales_channel==='online'?total*(1-gpPercent/100):(o.online_net ?? o.total),
+        platform_fee: lineFiltered?0:Number(o.platform_fee||0),
         member_phone: o.member_phone,
         received: lineFiltered?null:o.received,
         change_due: lineFiltered?null:o.change_due,

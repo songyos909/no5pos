@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260809-29">
+  <link rel="stylesheet" href="./styles.css?v=20260809-30">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -131,9 +131,13 @@
           <div id="online-channel-fields" class="online-channel-fields" hidden>
             <label>แพลตฟอร์ม<select id="online-channel"></select></label>
             <output id="online-gp-summary">กรุณาตั้งค่า GP จริงของร้าน</output>
+            <label>ยอดรับจริงจากแพลตฟอร์ม <span>บาท</span>
+              <input id="online-actual-received" type="number" min="0" step="0.01" placeholder="เว้นว่างเพื่อคำนวณจาก GP">
+            </label>
+            <output id="online-income-summary" class="online-income-summary"></output>
           </div>
         </fieldset>
-        <label>ส่วนลด <span>บาท</span>
+        <label>ส่วนลดท้ายบิล <span>บาท</span>
           <input id="discount" type="number" min="0" value="0">
         </label>
         <label id="payment-field">ช่องทางชำระเงิน
@@ -743,8 +747,11 @@
       </div>
       <div style="line-height: 1.6; margin-bottom: 10px;">
         <div style="display:flex; justify-content:space-between;"><span>ยอดรวมสินค้า:</span><span id="receipt-subtotal">฿0.00</span></div>
-        <div style="display:flex; justify-content:space-between;"><span>ส่วนลดบิล:</span><span id="receipt-discount">฿0.00</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>ส่วนลดรายเมนู:</span><span id="receipt-item-discount">฿0.00</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>ส่วนลดท้ายบิล:</span><span id="receipt-discount">฿0.00</span></div>
         <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:13.5px;"><span>ยอดชำระสุทธิ:</span><span id="receipt-total">฿0.00</span></div>
+        <div style="display:none; justify-content:space-between;" id="receipt-platform-fee-row"><span>ค่าธรรมเนียมแพลตฟอร์ม:</span><span id="receipt-platform-fee">฿0.00</span></div>
+        <div style="display:none; justify-content:space-between; font-weight:bold;" id="receipt-online-net-row"><span>ยอดรับจริง:</span><span id="receipt-online-net">฿0.00</span></div>
         <div style="border-top:1px dotted #000; margin:6px 0;"></div>
         <div style="display:flex; justify-content:space-between;"><span>ชำระด้วย:</span><span id="receipt-payment">เงินสด</span></div>
         <div style="display:flex; justify-content:space-between;" id="receipt-cash-received-row"><span>รับเงินสดมา:</span><span id="receipt-received">฿0.00</span></div>
@@ -828,7 +835,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260809-29"></script>
-  <script src="./app.js?v=20260809-29"></script>
+  <script src="./firebase-client.js?v=20260809-30"></script>
+  <script src="./app.js?v=20260809-30"></script>
 </body>
 </html>
