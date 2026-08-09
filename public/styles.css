@@ -1452,7 +1452,7 @@ dialog:not(#kds-dialog) #receipt-dialog header { padding-right:58px; }
 #recipe-book-dialog .recipe-book-toolbar{flex:0 0 auto}
 #recipe-book-dialog .recipe-book-summary{flex:0 0 auto}
 #recipe-book-dialog .recipe-book-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
-.recipe-book-row.is-guide{border-color:#e7c5a9;background:#fff9f3}.recipe-book-row.is-guide .recipe-book-title small{color:#a45d32;font-weight:700}
+.recipe-book-row.is-guide{border-color:#e7c5a9;background:#fff9f3}.recipe-book-row.is-guide .recipe-book-title small{color:#a45d32;font-weight:700}.recipe-liquid-total{display:block;margin-top:3px;color:#5b8060;font-size:10px!important;font-weight:700}.recipe-liquid-total.is-over{color:#c52f2f}.recipe-sweetness-inputs textarea.is-invalid{border-color:#d83a3a!important;background:#fff2f2}
 @media(max-width:620px){#recipe-book-dialog>header{min-height:96px!important;padding:20px 64px 14px 20px!important}#recipe-book-dialog .recipe-book-toolbar{grid-template-columns:1fr;padding:12px 16px}#recipe-book-dialog .recipe-book-summary{padding:10px 16px}#recipe-book-dialog .recipe-book-list{padding:0 12px 28px}.recipe-book-row{grid-template-columns:24px minmax(0,1fr);gap:9px;padding:11px}.recipe-book-actions{grid-column:2;display:grid;grid-template-columns:1fr 1fr}.recipe-book-actions button{width:100%}}
 
 @page{size:A4 portrait;margin:0}
