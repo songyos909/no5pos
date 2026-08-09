@@ -697,6 +697,7 @@ function showRecipePopover(product) {
 // ── Cart ───────────────────────────────────────────────────────
 // Editable recipe table and A4 brewing manual.
 const selectedRecipePrintIds = new Set();
+const bulkRecipeDrafts = new Map();
 const recipeForProduct = product => state.recipesData.find(recipe => String(recipe.id) === String(product.id));
 const recipeBookRows = () => {
   const query = ($('#recipe-book-search')?.value || '').trim().toLowerCase();
@@ -707,6 +708,77 @@ const recipeBookRows = () => {
     return (category === 'all' || String(product.category) === category) && (!query || searchable.includes(query));
   });
 };
+
+function formulaToBulkParts(formula) {
+  const result = {coffee:0,sweet:0,evaporated:0,fresh:0,water:0,sweetType:'นมข้นหวาน',extras:[]};
+  String(formula || '').split('+').forEach(part => {
+    const text=part.trim(), amount=Number(text.match(/(\d+(?:\.\d+)?)/)?.[1]) || 0;
+    if (/กาแฟ|coffee/i.test(text)) result.coffee += amount;
+    else if (/นมข้นจืด|evaporated/i.test(text)) result.evaporated += amount;
+    else if (/นมสด|fresh milk/i.test(text)) result.fresh += amount;
+    else if (/น้ำเย็น|น้ำเปล่า|water/i.test(text)) result.water += amount;
+    else if (/โกโก้ไม่หวาน|ผงโกโก้|มัทฉะ|matcha|cocoa powder/i.test(text)) result.extras.push(text);
+    else {
+      result.sweet += amount;
+      if (/น้ำเชื่อม|syrup/i.test(text)) result.sweetType='น้ำเชื่อม';
+      else if (/ช็อกโกแลต|chocolate/i.test(text)) result.sweetType='ช็อกโกแลต';
+      else if (/คาราเมล|caramel/i.test(text)) result.sweetType='คาราเมล';
+    }
+  });
+  return result;
+}
+
+const bulkRecipeTotal = draft => ['coffee','sweet','evaporated','fresh','water'].reduce((sum,key)=>sum+(Number(draft[key])||0),0);
+function bulkPartsToFormula(draft) {
+  const parts=[];
+  if (Number(draft.coffee)) parts.push(`กาแฟ ${Number(draft.coffee)}g`);
+  if (Array.isArray(draft.extras)) parts.push(...draft.extras);
+  if (Number(draft.sweet)) parts.push(`${draft.sweetType || 'นมข้นหวาน'} ${Number(draft.sweet)}ml`);
+  if (Number(draft.evaporated)) parts.push(`นมข้นจืด ${Number(draft.evaporated)}ml`);
+  if (Number(draft.fresh)) parts.push(`นมสด ${Number(draft.fresh)}ml`);
+  if (Number(draft.water)) parts.push(`น้ำเย็น ${Number(draft.water)}ml`);
+  return parts.join(' + ');
+}
+
+function bulkDraftFor(product) {
+  const level=$('#recipe-book-level')?.value || 'normal', key=`${product.id}:${level}`;
+  if (!bulkRecipeDrafts.has(key)) {
+    const recipe=recipeForProduct(product), row=normalizeSweetnessLevels(recipe?.sweetnessLevels,product).find(item=>item.level===level);
+    bulkRecipeDrafts.set(key,{...formulaToBulkParts(row?.formula),productId:product.id,level,dirty:false});
+  }
+  return bulkRecipeDrafts.get(key);
+}
+
+function renderBulkRecipeFields(product) {
+  const draft=bulkDraftFor(product), root=document.createElement('div'); root.className='recipe-bulk-fields'; root.dataset.productId=String(product.id);
+  const specs=[['coffee','กาแฟ','g'],['sweet','หวาน/น้ำเชื่อม','ml'],['evaporated','นมข้นจืด','ml'],['fresh','นมสด','ml'],['water','น้ำ/อื่น ๆ','ml']];
+  specs.forEach(([key,label,unit])=>{
+    const wrap=document.createElement('label'); wrap.innerHTML=`<span>${label}</span>`;
+    if(key==='sweet'){
+      const select=document.createElement('select'); ['นมข้นหวาน','น้ำเชื่อม','ช็อกโกแลต','คาราเมล'].forEach(value=>select.add(new Option(value,value))); select.value=draft.sweetType; select.onchange=()=>{draft.sweetType=select.value;draft.dirty=true;}; wrap.append(select);
+    }
+    const box=document.createElement('span'); box.className='recipe-bulk-number'; const input=document.createElement('input'); input.type='number'; input.inputMode='decimal'; input.min='0'; input.max='160'; input.step='1'; input.value=draft[key] || ''; input.placeholder='0';
+    input.oninput=()=>{draft[key]=Math.max(0,Number(input.value)||0);draft.dirty=true;const total=root.querySelector('output');const sum=bulkRecipeTotal(draft);total.value=`${sum} ml`;total.classList.toggle('is-over',sum>160);}; box.append(input,document.createTextNode(unit)); wrap.append(box); root.append(wrap);
+  });
+  const totalWrap=document.createElement('label'); totalWrap.className='recipe-bulk-total'; totalWrap.innerHTML='<span>รวม</span>'; const total=document.createElement('output'); const sum=bulkRecipeTotal(draft); total.value=`${sum} ml`; total.classList.toggle('is-over',sum>160); totalWrap.append(total); root.append(totalWrap);
+  return root;
+}
+
+async function saveBulkRecipes() {
+  const drafts=[...bulkRecipeDrafts.values()].filter(row=>row.dirty);
+  if(!drafts.length)return showNotice('ยังไม่มีสูตรที่แก้ไข');
+  const over=drafts.find(row=>bulkRecipeTotal(row)>160); if(over)return showNotice(`มีสูตรรวม ${bulkRecipeTotal(over)} ml — ต้องไม่เกิน 160 ml`,'error');
+  const button=$('#recipe-book-save-all'); if(button)button.disabled=true;
+  try{
+    for(const draft of drafts){
+      const product=state.products.find(row=>String(row.id)===String(draft.productId)), recipe=recipeForProduct(product) || {items:[],description:''};
+      const levels=normalizeSweetnessLevels(recipe.sweetnessLevels,product).map(row=>row.level===draft.level?{...row,formula:bulkPartsToFormula(draft)}:row);
+      await api(`/api/admin/products/${draft.productId}/recipe`,{method:'PUT',body:JSON.stringify({items:recipe.items || [],description:recipe.description || '',sweetnessLevels:levels})});
+      draft.dirty=false;
+    }
+    await load(); bulkRecipeDrafts.clear(); renderRecipeBook(); showNotice(`บันทึกสูตร ${drafts.length} เมนูแล้ว`);
+  }catch(error){showNotice(error.message,'error');}finally{if(button)button.disabled=false;}
+}
 
 function renderRecipeBook() {
   const root = $('#recipe-book-list'); if (!root) return;
@@ -727,7 +799,7 @@ function renderRecipeBook() {
     info.innerHTML = `<div class="recipe-book-title">${visual}<div><strong>${escapeHtml(displayName(product))}</strong><small>${savedItems.length ? `${savedItems.length} วัตถุดิบจากสต็อก` : 'สูตรแนะนำ 16 oz · แก้ไขได้'}</small></div></div><div class="recipe-book-ingredients">${items.map(item => `<span><b>${escapeHtml(displayName(item))}</b> ${escapeHtml(item.quantity)} ${escapeHtml(item.unit || '')}</span>`).join('')}</div><p>${escapeHtml(recipeDescription(recipe, product))}</p>`;
     const sweetness = document.createElement('div'); sweetness.className = 'recipe-book-sweetness';
     sweetness.innerHTML = normalizeSweetnessLevels(recipe?.sweetnessLevels, product).map(level => `<span><b>${escapeHtml(level.label)}</b>${escapeHtml(level.formula)}</span>`).join('');
-    info.append(sweetness);
+    info.append(renderBulkRecipeFields(product), sweetness);
     const actions = document.createElement('div'); actions.className = 'recipe-book-actions';
     const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'secondary-btn'; edit.textContent = '✏️ แก้ไข'; edit.onclick = () => { $('#recipe-book-dialog')?.close(); openProductEditor(product); };
     const print = document.createElement('button'); print.type = 'button'; print.className = 'primary-btn'; print.textContent = '🖨️ A4'; print.onclick = () => printRecipeBook([product]);
@@ -762,11 +834,13 @@ function printRecipeBook(products) {
   setTimeout(() => window.print(), 80);
 }
 
-function openRecipeBook() { selectedRecipePrintIds.clear(); renderRecipeBook(); $('#recipe-book-dialog')?.showModal(); }
+function openRecipeBook() { selectedRecipePrintIds.clear(); bulkRecipeDrafts.clear(); renderRecipeBook(); $('#recipe-book-dialog')?.showModal(); }
 $('#btn-open-recipe-book') && ($('#btn-open-recipe-book').onclick = openRecipeBook);
 document.querySelector('#recipe-book-dialog .close') && (document.querySelector('#recipe-book-dialog .close').onclick = () => $('#recipe-book-dialog')?.close());
 $('#recipe-book-search') && ($('#recipe-book-search').oninput = renderRecipeBook);
 $('#recipe-book-category') && ($('#recipe-book-category').onchange = renderRecipeBook);
+$('#recipe-book-level') && ($('#recipe-book-level').onchange = renderRecipeBook);
+$('#recipe-book-save-all') && ($('#recipe-book-save-all').onclick = saveBulkRecipes);
 $('#recipe-book-select-all') && ($('#recipe-book-select-all').onclick = () => { const rows = recipeBookRows(); const allSelected = rows.length && rows.every(row => selectedRecipePrintIds.has(String(row.id))); rows.forEach(row => allSelected ? selectedRecipePrintIds.delete(String(row.id)) : selectedRecipePrintIds.add(String(row.id))); renderRecipeBook(); });
 $('#recipe-book-print-selected') && ($('#recipe-book-print-selected').onclick = () => printRecipeBook(state.products.filter(product => selectedRecipePrintIds.has(String(product.id)))));
 
