@@ -1665,3 +1665,46 @@ dialog:not(#kds-dialog) > form,dialog:not(#kds-dialog) > :first-child { backgrou
 .discount-preset-controls{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.discount-preset-controls button{min-height:40px;padding:8px 11px;font-size:11px}.discount-preset-controls select{width:100%}
 @media (max-width:720px){.option-library-layout{grid-template-columns:1fr}.option-library-list{max-height:190px}}
 @media (max-width:640px){.discount-preset-controls{grid-template-columns:1fr}.discount-preset-controls button{width:100%}}
+
+/* iPad workspace: keep the register and cart visible together in either orientation. */
+@media (min-width:700px) and (max-width:1180px) {
+  body { padding-bottom:0; }
+  body.mobile-cart-open { overflow:auto; }
+  .topbar { min-height:66px; padding:10px 14px; gap:10px; }
+  .brand h1 { font-size:19px; }
+  .brand small { font-size:10px; }
+  .top-actions { gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  .top-actions button { min-height:38px; padding:7px 10px; font-size:11px; }
+  body .workspace { display:grid !important; grid-template-columns:minmax(0,1fr) minmax(300px,34vw) !important; align-items:start; gap:12px; margin-top:12px; padding:0 12px 22px; }
+  .catalog,.cart { padding:15px; border-radius:20px; }
+  .catalog { min-width:0; }
+  body .workspace .cart { display:block; position:sticky !important; inset:auto; top:78px; max-height:calc(100dvh - 92px); overflow:auto; transform:none; opacity:1; pointer-events:auto; box-shadow:var(--shadow-sm); }
+  .workspace .cart .cart-header { position:static; margin:0 0 10px; padding:0; background:transparent; border:0; backdrop-filter:none; }
+  .mobile-cart-toggle,.mobile-cart-close { display:none !important; }
+  .workspace #products.grid,.workspace .grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .product { min-height:130px; padding:12px; }
+  .product .product-image { height:88px; }
+  .cart-lines { max-height:34vh; min-height:90px; overflow:auto; }
+  .line { flex-wrap:wrap; gap:6px; padding:9px 0; }
+  .line > span:first-child { flex:1 0 calc(100% - 8px); }
+  .cart-item-discount { margin-left:auto; }
+  .checkout-controls { grid-template-columns:1fr 1fr; gap:8px; }
+  .sale-channel-toggle,.backdate-fields,.discount-preset-controls { grid-column:1/-1; }
+  .discount-preset-controls { grid-template-columns:minmax(0,1fr); }
+  .discount-preset-controls button { width:100%; }
+  .online-channel-fields { grid-template-columns:1fr; }
+  .member-section { padding:10px; }
+  .dashboard { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:0 12px 24px; }
+  .dashboard article { min-height:88px; padding:14px; }
+  dialog:not(#kds-dialog) { width:min(94vw,960px); max-height:94dvh; }
+  .recipe-selector-layout { grid-template-columns:1fr; overflow:auto; }
+  .recipe-selector-tools { grid-template-columns:minmax(0,1fr) 180px; }
+  .report-filters { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media (min-width:1000px) and (max-width:1180px) {
+  body .workspace { grid-template-columns:minmax(0,1fr) 350px !important; gap:16px; padding-inline:16px; }
+  .workspace #products.grid,.workspace .grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+  .cart-lines { max-height:38vh; }
+  .discount-preset-controls { grid-template-columns:minmax(0,1fr) auto; }
+  .discount-preset-controls button { width:auto; }
+}
