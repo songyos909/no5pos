@@ -37,15 +37,36 @@ function normalizeSweetnessLevels(levels, product = {}) {
   const name = displayName(product).toLowerCase();
   let defaults;
   if (name.includes('americano') || name.includes('อเมริกาโน')) defaults = {
-    none:'กาแฟ 40g + น้ำเย็น 140ml', low:'กาแฟ 40g + น้ำเชื่อม 10ml + น้ำเย็น 130ml', normal:'กาแฟ 40g + น้ำเชื่อม 20ml + น้ำเย็น 120ml', high:'กาแฟ 40g + น้ำเชื่อม 30ml + น้ำเย็น 110ml'
+    none:'กาแฟ 40g + น้ำเย็น 120ml', low:'กาแฟ 40g + น้ำเชื่อม 10ml + น้ำเย็น 110ml', normal:'กาแฟ 40g + น้ำเชื่อม 20ml + น้ำเย็น 100ml', high:'กาแฟ 40g + น้ำเชื่อม 30ml + น้ำเย็น 90ml'
   }; else if (name.includes('mocha') || name.includes('มอคค่า')) defaults = {
-    none:'กาแฟ 40g + โกโก้ไม่หวาน 10g + นมสด 150ml', low:'กาแฟ 40g + ซอสช็อกโกแลต 15ml + นมข้นหวาน 5g + นมสด 140ml', normal:'กาแฟ 40g + ซอสช็อกโกแลต 20ml + นมข้นหวาน 15g + นมสด 130ml', high:'กาแฟ 40g + ซอสช็อกโกแลต 25ml + นมข้นหวาน 25g + นมสด 115ml'
+    none:'กาแฟ 40g + โกโก้ไม่หวาน 10g + นมสด 120ml', low:'กาแฟ 40g + ซอสช็อกโกแลต 15ml + นมข้นหวาน 5g + นมสด 100ml', normal:'กาแฟ 40g + ซอสช็อกโกแลต 20ml + นมข้นหวาน 15g + นมสด 85ml', high:'กาแฟ 40g + ซอสช็อกโกแลต 25ml + นมข้นหวาน 25g + นมสด 70ml'
   }; else if (name.includes('caramel') || name.includes('คาราเมล')) defaults = {
-    none:'กาแฟ 40g + นมข้นจืด 20ml + นมสด 130ml', low:'กาแฟ 40g + วานิลลา 10ml + นมข้นหวาน 5g + นมสด 120ml + คาราเมล 5ml', normal:'กาแฟ 40g + วานิลลา 15ml + นมข้นหวาน 15g + นมสด 110ml + คาราเมล 10ml', high:'กาแฟ 40g + วานิลลา 25ml + นมข้นหวาน 20g + นมสด 95ml + คาราเมล 15ml'
+    none:'กาแฟ 40g + นมข้นจืด 30ml + นมสด 90ml', low:'กาแฟ 40g + วานิลลา 10ml + นมข้นหวาน 5g + นมสด 95ml + คาราเมล 5ml', normal:'กาแฟ 40g + วานิลลา 10ml + นมข้นหวาน 15g + นมสด 80ml + คาราเมล 10ml', high:'กาแฟ 40g + วานิลลา 15ml + นมข้นหวาน 20g + นมสด 65ml + คาราเมล 15ml'
   }; else defaults = {
-    none:'กาแฟ 40g + นมข้นจืด 30ml + นมสด 125ml', low:'กาแฟ 40g + นมข้นหวาน 15g + นมข้นจืด 30ml + นมสด 110ml', normal:'กาแฟ 40g + นมข้นหวาน 25g + นมข้นจืด 30ml + นมสด 100ml', high:'กาแฟ 40g + นมข้นหวาน 35g + น้ำเชื่อม 5ml + นมข้นจืด 30ml + นมสด 85ml'
+    none:'กาแฟ 40g + นมข้นจืด 30ml + นมสด 90ml', low:'กาแฟ 40g + นมข้นหวาน 15g + นมข้นจืด 30ml + นมสด 75ml', normal:'กาแฟ 40g + นมข้นหวาน 20g + นมข้นจืด 30ml + นมสด 70ml', high:'กาแฟ 40g + นมข้นหวาน 25g + น้ำเชื่อม 5ml + นมข้นจืด 30ml + นมสด 60ml'
   };
   return Object.keys(SWEETNESS_LABELS).map(level => ({level,label:SWEETNESS_LABELS[level],formula:saved[level] || defaults[level]}));
+}
+
+function formulaLiquidMl(formula) {
+  return String(formula || '').split('+').reduce((total, part) => {
+    const text = part.trim().toLowerCase();
+    if (/โกโก้ไม่หวาน|ผงโกโก้|มัทฉะ|matcha|cocoa powder/.test(text)) return total;
+    const match = text.match(/(\d+(?:\.\d+)?)\s*(ml|g)\b/i);
+    return total + (match ? Number(match[1]) : 0);
+  }, 0);
+}
+
+function updateSweetnessLiquidTotals() {
+  Object.keys(SWEETNESS_LABELS).forEach(level => {
+    const input = $(`#recipe-sweet-${level}`); if (!input) return;
+    let status = input.parentElement?.querySelector('.recipe-liquid-total');
+    if (!status) { status = document.createElement('small'); status.className = 'recipe-liquid-total'; input.after(status); }
+    const total = formulaLiquidMl(input.value), over = total > 160;
+    status.textContent = `ของเหลวรวม ${total}/160 ml${over ? ' · เกินกำหนด' : ''}`;
+    status.classList.toggle('is-over', over);
+    input.classList.toggle('is-invalid', over);
+  });
 }
 
 function recipeDisplayItems(recipe, product) {
@@ -2096,7 +2117,8 @@ $('#btn-delete-option-group') && ($('#btn-delete-option-group').onclick=async()=
 
 function setSweetnessEditor(levels, product) {
   currentEditSweetnessLevels = normalizeSweetnessLevels(levels, product);
-  currentEditSweetnessLevels.forEach(row => { const input = $(`#recipe-sweet-${row.level}`); if (input) input.value = row.formula; });
+  currentEditSweetnessLevels.forEach(row => { const input = $(`#recipe-sweet-${row.level}`); if (input) { input.value = row.formula; input.oninput = updateSweetnessLiquidTotals; } });
+  updateSweetnessLiquidTotals();
 }
 function readSweetnessEditor() {
   return Object.keys(SWEETNESS_LABELS).map(level => ({level,label:SWEETNESS_LABELS[level],formula:String($(`#recipe-sweet-${level}`)?.value || '').trim().slice(0,500)}));
@@ -2302,6 +2324,8 @@ if (saveProductBtn) {
     const customOptions = normalizeCustomOptionGroups(currentCustomOptionGroups);
 
     if (!name || isNaN(price) || price < 0) return alert('กรอกชื่อสินค้าและราคาให้ถูกต้อง');
+    const overLimit = sweetnessLevels.find(row => formulaLiquidMl(row.formula) > 160);
+    if (overLimit) return showNotice(`${overLimit.label} มีของเหลวรวม ${formulaLiquidMl(overLimit.formula)} ml — ต้องไม่เกิน 160 ml`, 'error');
     if(defaultDiscount<0||defaultDiscount>price)return showNotice('ส่วนลดประจำเมนูต้องอยู่ระหว่าง 0 ถึงราคาสินค้า','error');
     if (deductStock && !currentEditRecipeItems.length) return showNotice('เมนูที่ตัด stock ต้องเลือกวัตถุดิบหรือบรรจุภัณฑ์อย่างน้อย 1 รายการ หรือปิด “ตัด stock”', 'error');
 
