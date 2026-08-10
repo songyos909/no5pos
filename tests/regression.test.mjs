@@ -380,4 +380,8 @@ test('online order numbers and backdated sales persist through both backends', a
   assert.match(app,/edit-history-bill/);
   assert.match(server,/app\.patch\('\/api\/reports\/transactions\/:id'/);
   assert.match(firebase,/method==='PATCH'/);
+  assert.match(app,/deleteHistoricalBill/);
+  assert.match(app,/delete-history-bill/);
+  assert.match(server,/app\.delete\('\/api\/reports\/transactions\/:id'/);
+  assert.match(firebase,/method==='DELETE'/);
 });
