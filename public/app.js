@@ -102,6 +102,11 @@ async function editHistoricalBill(tx, refresh) {
   document.body.append(dialog);dialog.showModal();dialog.addEventListener('close',()=>dialog.remove());
   dialog.querySelector('.save-bill-edit').onclick=async()=>{const billNumber=dialog.querySelector('[name="billNumber"]').value.trim(),soldAtRaw=dialog.querySelector('[name="soldAt"]').value;if(!billNumber||!soldAtRaw)return showNotice('กรุณากรอกเลขบิลและวันเวลา','error');try{await api(`/api/reports/transactions/${encodeURIComponent(tx.id)}`,{method:'PATCH',body:JSON.stringify({customBillNumber:billNumber,soldAt:new Date(soldAtRaw).toISOString()})});dialog.close();showNotice('แก้ไขวันที่และเลขบิลเรียบร้อย');await refresh();}catch(error){showNotice(error.message,'error');}};
 }
+async function deleteHistoricalBill(tx, refresh) {
+  const bill=tx.custom_bill_number||tx.customBillNumber||tx.external_order_number||tx.externalOrderNumber||tx.id;
+  if(!window.confirm(`ยืนยันลบบิล ${bill}?\n\nบิลจะถูกนำออกจากยอดขายและไม่สามารถกู้คืนได้`))return;
+  try{await api(`/api/reports/transactions/${encodeURIComponent(tx.id)}`,{method:'DELETE'});showNotice(`ลบบิล ${bill} เรียบร้อย`);await refresh();}catch(error){showNotice(error.message,'error');}
+}
 const menuImageFor = product => {
   if (product?.image_data) return product.image_data;
   if (product?.image_path) return String(product.image_path).replace(/^\/+/, '');
@@ -1509,6 +1514,7 @@ if (reportsBtn) {
                 <span style="font-size:10px;background:${tx.sales_channel === 'online' ? '#dff2fb' : '#f1ebe5'};padding:2px 6px;border-radius:4px;">${tx.sales_channel === 'online' ? 'ออนไลน์' : `หน้าร้าน · ${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}`}</span>
               </div>`;
             const editButton=document.createElement('button');editButton.type='button';editButton.className='edit-history-bill';editButton.textContent='✏️ แก้ไข';editButton.title='แก้ไขวันที่และเลขบิล';editButton.onclick=event=>{event.stopPropagation();editHistoricalBill(tx,()=>reportsBtn?.click());};row.lastElementChild?.append(editButton);
+            const deleteButton=document.createElement('button');deleteButton.type='button';deleteButton.className='delete-history-bill';deleteButton.textContent='🗑️ ลบ';deleteButton.title='ลบบิลซ้ำ';deleteButton.onclick=event=>{event.stopPropagation();deleteHistoricalBill(tx,()=>reportsBtn?.click());};row.lastElementChild?.append(deleteButton);
             row.onclick = () => { $('#reports-dialog')?.close(); showReceipt({ ...tx, items: tx.items }); };
             txEl.append(row);
           });
