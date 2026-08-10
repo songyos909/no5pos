@@ -556,6 +556,8 @@ app.get('/api/reports/transactions', (req, res) => {
       const gpPercent=Number(o.gp_percent||0);
       return {
         id: o.id,
+        external_order_number: o.external_order_number,
+        custom_bill_number: o.custom_bill_number,
         created_at: o.created_at,
         subtotal,
         discount,
@@ -578,6 +580,16 @@ app.get('/api/reports/transactions', (req, res) => {
   } catch (e) {
     fail(res, e.message, 500);
   }
+});
+
+app.patch('/api/reports/transactions/:id', (req, res) => {
+  if (!enabled('reports')) return fail(res, 'ยังไม่ได้เปิดฟังก์ชันรายงาน', 403);
+  const id=String(req.params.id||''),customBillNumber=String(req.body?.customBillNumber||'').trim().slice(0,40),soldAt=new Date(req.body?.soldAt);
+  if(!id||!customBillNumber)return fail(res,'กรุณาระบุเลขบิล');
+  if(!Number.isFinite(soldAt.getTime())||soldAt.getTime()>Date.now()+60000)return fail(res,'วันและเวลาของบิลไม่ถูกต้อง');
+  const createdAt=soldAt.toISOString();
+  const update=db.transaction(()=>db.prepare('UPDATE orders SET custom_bill_number=?,created_at=? WHERE id=?').run(customBillNumber,createdAt,id).changes);
+  return update()?res.json({ok:true,id,customBillNumber,createdAt}):fail(res,'ไม่พบบิลที่ต้องการแก้ไข',404);
 });
 
 app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all()}));

@@ -367,11 +367,17 @@ test('online order numbers and backdated sales persist through both backends', a
   const app=await read('public/app.js');
   const server=await read('server.js');
   const firebase=await read('public/firebase-client.js');
-  for(const id of ['online-order-number','backdate-enabled','backdate-datetime'])assert.match(html,new RegExp(`id="${id}"`));
+  for(const id of ['online-order-number','backdate-enabled','backdate-datetime','backdate-bill-number'])assert.match(html,new RegExp(`id="${id}"`));
   for(const source of [app,server,firebase]){
     assert.match(source,/externalOrderNumber/);
     assert.match(source,/soldAt/);
+    assert.match(source,/customBillNumber/);
   }
   assert.match(server,/external_order_number/);
+  assert.match(server,/custom_bill_number/);
   assert.match(app,/external_order_number/);
+  assert.match(app,/editHistoricalBill/);
+  assert.match(app,/edit-history-bill/);
+  assert.match(server,/app\.patch\('\/api\/reports\/transactions\/:id'/);
+  assert.match(firebase,/method==='PATCH'/);
 });
