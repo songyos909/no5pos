@@ -1081,6 +1081,7 @@ async function checkout() {
   const backdateEnabled=Boolean($('#backdate-enabled')?.checked);
   const soldAtRaw=backdateEnabled?$('#backdate-datetime')?.value:'';
   const soldAt=soldAtRaw?new Date(soldAtRaw):null;
+  const customBillNumber=backdateEnabled?String($('#backdate-bill-number')?.value||'').trim().slice(0,40):'';
   if(backdateEnabled&&(!soldAt||!Number.isFinite(soldAt.getTime())||soldAt.getTime()>Date.now()+60000))return showNotice('กรุณาระบุวันและเวลาขายย้อนหลังให้ถูกต้อง','error');
   const redeemFreeCup = memberDiscount > 0;
 
@@ -1096,6 +1097,7 @@ async function checkout() {
     gpPercent,
     onlineActualReceived,
     externalOrderNumber:externalOrderNumber||null,
+    customBillNumber:customBillNumber||null,
     soldAt:soldAt?.toISOString()||null,
     memberPhone: currentMember?.phone || null,
     received: total,
@@ -1126,7 +1128,9 @@ async function finalizeCheckout() {
     if ($('#online-order-number')) $('#online-order-number').value = '';
     if ($('#backdate-enabled')) $('#backdate-enabled').checked = false;
     if ($('#backdate-datetime')) $('#backdate-datetime').value = '';
+    if ($('#backdate-bill-number')) $('#backdate-bill-number').value = '';
     if ($('#backdate-datetime-field')) $('#backdate-datetime-field').hidden = true;
+    if ($('#backdate-bill-field')) $('#backdate-bill-field').hidden = true;
     if ($('#member-phone')) $('#member-phone').value = '';
     if ($('#member-info')) { $('#member-info').textContent=''; $('#member-info').className='member-info'; }
     if ($('#quick-member-name')) { $('#quick-member-name').value=''; $('#quick-member-name').style.display='none'; }
@@ -1206,7 +1210,9 @@ function showReceipt(order) {
   set('#receipt-total', money(order.total));
   set('#receipt-payment', paymentType === 'online' ? 'ออนไลน์ผ่านแพลตฟอร์ม 🌐' : paymentType === 'cash' ? 'เงินสด 💵' : 'สแกน QR 📱');
   const externalOrderNumber=order.externalOrderNumber||order.external_order_number||'';
-  set('#receipt-tx', `บิล: ${externalOrderNumber?`${externalOrderNumber} · ระบบ ${order.id}`:order.id} · ${order.salesChannel === 'online' || order.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'}`);
+  const customBillNumber=order.customBillNumber||order.custom_bill_number||'';
+  const shownBillNumber=customBillNumber||externalOrderNumber||order.id;
+  set('#receipt-tx', `บิล: ${shownBillNumber}${shownBillNumber!==order.id?` · ระบบ ${order.id}`:''} · ${order.salesChannel === 'online' || order.sales_channel === 'online' ? 'ออนไลน์' : 'หน้าร้าน'}`);
 
   const online=order.salesChannel==='online'||order.sales_channel==='online';
   const platformFee=Number(order.platformFee??order.platform_fee??Math.max(0,Number(order.total||0)-Number(order.onlineNet??order.online_net??(order.total||0))))||0;
@@ -1484,7 +1490,7 @@ if (reportsBtn) {
             const itemSummary = (tx.items || []).map(x => `${x.name}×${x.quantity}`).join(', ');
             row.innerHTML = `
               <div>
-                <b>${escapeHtml(tx.external_order_number||tx.externalOrderNumber||tx.id)}</b>${tx.external_order_number||tx.externalOrderNumber?` <small style="color:#aaa;">ระบบ ${escapeHtml(tx.id)}</small>`:''} <small style="color:#aaa;">(${escapeHtml(time)})</small>
+                <b>${escapeHtml(tx.custom_bill_number||tx.customBillNumber||tx.external_order_number||tx.externalOrderNumber||tx.id)}</b>${tx.custom_bill_number||tx.customBillNumber||tx.external_order_number||tx.externalOrderNumber?` <small style="color:#aaa;">ระบบ ${escapeHtml(tx.id)}</small>`:''} <small style="color:#aaa;">(${escapeHtml(time)})</small>
                 <div style="font-size:10.5px;color:#8c7366;margin-top:2px;">${escapeHtml(itemSummary || '—')}</div>
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
@@ -2496,8 +2502,9 @@ document.querySelectorAll('input[name="sale-channel"]').forEach(input => { input
 $('#online-channel') && ($('#online-channel').onchange = updateOnlineChannelUI);
 const backdateEnabledEl=$('#backdate-enabled');
 if(backdateEnabledEl)backdateEnabledEl.onchange=()=>{
-  const field=$('#backdate-datetime-field'),input=$('#backdate-datetime');
+  const field=$('#backdate-datetime-field'),billField=$('#backdate-bill-field'),input=$('#backdate-datetime');
   if(field)field.hidden=!backdateEnabledEl.checked;
+  if(billField)billField.hidden=!backdateEnabledEl.checked;
   if(backdateEnabledEl.checked&&input&&!input.value){
     const local=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
     input.value=local;

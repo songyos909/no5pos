@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260809-42">
+  <link rel="stylesheet" href="./styles.css?v=20260810-43">
   <style id="responsive-ui-v22">
     .cart-header-actions{display:flex;align-items:center;gap:8px}.mobile-cart-close,.mobile-cart-toggle{display:none}
     #products.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
@@ -144,6 +144,9 @@
           <label class="backdate-toggle"><input id="backdate-enabled" type="checkbox"> บันทึกการขายย้อนหลัง</label>
           <label id="backdate-datetime-field" hidden>วันและเวลาที่ขายจริง
             <input id="backdate-datetime" type="datetime-local">
+          </label>
+          <label id="backdate-bill-field" hidden>เลขบิลย้อนหลัง
+            <input id="backdate-bill-number" type="text" maxlength="40" inputmode="numeric" placeholder="เช่น #0909">
           </label>
         </fieldset>
         <label>ส่วนลดท้ายบิล <span>บาท</span>
@@ -882,7 +885,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="./firebase-client.js?v=20260809-42"></script>
-  <script src="./app.js?v=20260809-42"></script>
+  <script src="./firebase-client.js?v=20260810-43"></script>
+  <script src="./app.js?v=20260810-43"></script>
 </body>
 </html>
