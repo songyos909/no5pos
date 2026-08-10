@@ -59,6 +59,8 @@ try { db.prepare("SELECT external_order_number FROM orders LIMIT 1").get(); }
 catch { db.exec("ALTER TABLE orders ADD COLUMN external_order_number TEXT"); }
 try { db.prepare("SELECT custom_bill_number FROM orders LIMIT 1").get(); }
 catch { db.exec("ALTER TABLE orders ADD COLUMN custom_bill_number TEXT"); }
+try { db.prepare("SELECT points_delta FROM orders LIMIT 1").get(); }
+catch { db.exec("ALTER TABLE orders ADD COLUMN points_delta INTEGER NOT NULL DEFAULT 0"); }
 
 // Migration: Add description column to recipes if it doesn't exist
 try {
@@ -424,6 +426,7 @@ app.post('/api/orders', (req,res) => {
           newPoints += cupsEarned;
           pointsEarned = cupsEarned;
           db.prepare('UPDATE members SET points=? WHERE phone=?').run(newPoints, memberPhone);
+          db.prepare('UPDATE orders SET points_delta=? WHERE id=?').run(newPoints-member.points,orderId);
           memberPoints = newPoints;
       }
       return {id:orderId,externalOrderNumber:normalizedExternalOrderNumber||null,customBillNumber:normalizedCustomBillNumber||null,subtotal,discount:finalDiscount,itemDiscount:itemDiscountTotal,billDiscount,total,createdAt:now,paymentType:normalizedPaymentType,salesChannel:normalizedSalesChannel,onlinePlatform:normalizedPlatform,gpPercent:normalizedGp,onlineNet,platformFee,memberPhone,received:normalizedReceived,changeDue:normalizedChange,memberPoints,pointsEarned,items:lines.map(x=>({name:x.product.name_th||x.product.name,quantity:x.qty,unit_price:x.unitPrice,original_unit_price:x.originalUnitPrice,item_discount:x.itemDiscount,options:x.options}))};
@@ -590,6 +593,25 @@ app.patch('/api/reports/transactions/:id', (req, res) => {
   const createdAt=soldAt.toISOString();
   const update=db.transaction(()=>db.prepare('UPDATE orders SET custom_bill_number=?,created_at=? WHERE id=?').run(customBillNumber,createdAt,id).changes);
   return update()?res.json({ok:true,id,customBillNumber,createdAt}):fail(res,'ไม่พบบิลที่ต้องการแก้ไข',404);
+});
+
+app.delete('/api/reports/transactions/:id', (req, res) => {
+  if (!enabled('reports')) return fail(res, 'ยังไม่ได้เปิดฟังก์ชันรายงาน', 403);
+  const id=String(req.params.id||'');
+  try{
+    const removed=db.transaction(()=>{
+      const order=db.prepare('SELECT id,member_phone,points_delta FROM orders WHERE id=?').get(id);if(!order)return 0;
+      const movements=db.prepare('SELECT stock_key,sum(quantity) quantity FROM stock_movements WHERE order_id=? GROUP BY stock_key').all(id);
+      const restore=db.prepare('UPDATE inventory SET quantity=quantity+? WHERE stock_key=?');
+      movements.forEach(row=>restore.run(Math.max(0,-Number(row.quantity||0)),row.stock_key));
+      db.prepare('DELETE FROM stock_movements WHERE order_id=?').run(id);
+      db.prepare('DELETE FROM order_items WHERE order_id=?').run(id);
+      db.prepare('DELETE FROM orders WHERE id=?').run(id);
+      if(order.member_phone&&Number(order.points_delta||0)!==0)db.prepare('UPDATE members SET points=max(0,points-?) WHERE phone=?').run(Number(order.points_delta),order.member_phone);
+      return 1;
+    })();
+    return removed?res.json({ok:true,id}):fail(res,'ไม่พบบิลที่ต้องการลบ',404);
+  }catch(error){return fail(res,error.message,500);}
 });
 
 app.get('/api/admin/settings', admin, (_,res) => res.json({features:db.prepare("SELECT feature_key,enabled FROM feature_settings WHERE feature_key IN ('kds','inventory','members','recipes','reports')").all()}));
