@@ -91,6 +91,17 @@ const $ = s => document.querySelector(s);
 const money = n => `฿${Number(n || 0).toFixed(2)}`;
 const displayName = item => item?.name_th || item?.name || '';
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const datetimeLocalValue = value => {
+  const date=new Date(value);if(!Number.isFinite(date.getTime()))return '';
+  return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);
+};
+
+async function editHistoricalBill(tx, refresh) {
+  const dialog=document.createElement('dialog');dialog.className='bill-edit-dialog';
+  dialog.innerHTML=`<form method="dialog" class="bill-edit-form"><h3>แก้ไขวันที่และเลขบิล</h3><p>เลขอ้างอิงระบบ: <b>${escapeHtml(tx.id)}</b></p><label>เลขบิล<input name="billNumber" type="text" maxlength="40" inputmode="numeric" required value="${escapeHtml(tx.custom_bill_number||tx.customBillNumber||tx.external_order_number||tx.externalOrderNumber||'')}"></label><label>วันและเวลาที่ขายจริง<input name="soldAt" type="datetime-local" required value="${datetimeLocalValue(tx.created_at||tx.createdAt)}" max="${datetimeLocalValue(new Date())}"></label><div class="bill-edit-actions"><button value="cancel">ยกเลิก</button><button type="button" class="primary save-bill-edit">บันทึกการแก้ไข</button></div></form>`;
+  document.body.append(dialog);dialog.showModal();dialog.addEventListener('close',()=>dialog.remove());
+  dialog.querySelector('.save-bill-edit').onclick=async()=>{const billNumber=dialog.querySelector('[name="billNumber"]').value.trim(),soldAtRaw=dialog.querySelector('[name="soldAt"]').value;if(!billNumber||!soldAtRaw)return showNotice('กรุณากรอกเลขบิลและวันเวลา','error');try{await api(`/api/reports/transactions/${encodeURIComponent(tx.id)}`,{method:'PATCH',body:JSON.stringify({customBillNumber:billNumber,soldAt:new Date(soldAtRaw).toISOString()})});dialog.close();showNotice('แก้ไขวันที่และเลขบิลเรียบร้อย');await refresh();}catch(error){showNotice(error.message,'error');}};
+}
 const menuImageFor = product => {
   if (product?.image_data) return product.image_data;
   if (product?.image_path) return String(product.image_path).replace(/^\/+/, '');
@@ -1497,6 +1508,7 @@ if (reportsBtn) {
                 <strong style="color:var(--primary);">${money(tx.total)}</strong>
                 <span style="font-size:10px;background:${tx.sales_channel === 'online' ? '#dff2fb' : '#f1ebe5'};padding:2px 6px;border-radius:4px;">${tx.sales_channel === 'online' ? 'ออนไลน์' : `หน้าร้าน · ${tx.payment_type === 'cash' ? 'เงินสด' : 'QR'}`}</span>
               </div>`;
+            const editButton=document.createElement('button');editButton.type='button';editButton.className='edit-history-bill';editButton.textContent='✏️ แก้ไข';editButton.title='แก้ไขวันที่และเลขบิล';editButton.onclick=event=>{event.stopPropagation();editHistoricalBill(tx,()=>reportsBtn?.click());};row.lastElementChild?.append(editButton);
             row.onclick = () => { $('#reports-dialog')?.close(); showReceipt({ ...tx, items: tx.items }); };
             txEl.append(row);
           });
